@@ -11,16 +11,6 @@ class MyMaraNode {
         this._host = socket.host;
     }
 
-    #isJsonObject(data) {
-        console.log(data);
-        try {
-            JSON.parse(data);
-        } catch (e) {
-            return false;
-        }
-        return true;
-    }
-
     client() {
         // The port number and hostname of the server.
         const port = this._port;
