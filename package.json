@@ -1,5 +1,8 @@
 {
   "dependencies": {
     "canonicalize": "^1.0.8"
+  },
+  "scripts": {
+    "start": "node my-mara-node.js"
   }
 }
