@@ -91,8 +91,6 @@ class MyMaraNode {
                     const error = { "type": "error", "error": "Unsupported message type received" };
                     throw error;
                 }
-
-                // console.log(`Data received from client: ${chunk.toString()}.`);
             });
 
             // When the client requests to end the TCP connection with the server, the server
