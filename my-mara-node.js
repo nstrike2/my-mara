@@ -5,16 +5,23 @@ const Net = require('net');
 const canonicalize = require('canonicalize');
 
 class MyMaraNode {
+
     // socket = { port: port, host: host }
+    // this socket passed in, which is the socket our node will run on, is added to our trusted sockets
     constructor(socket) {
-        this._port = socket.port;
-        this._host = socket.host;
+        this.trustedSockets = [
+            { port: 18018, host: "149.28.220.241" },
+            { port: 18018, host: "149.28.204.235" },
+            { port: 18018, host: "139.162.130.195" }
+        ];
+        this.trustedSockets.push(socket);
+        this._nodeSocket = socket;
     }
 
-    client() {
-        // The port number and hostname of the server.
-        const port = this._port;
-        const host = this._host;
+    client(serverPort, serverHost) {
+        // The port number and hostname of the server we're trying to connect to.
+        const port = serverPort;
+        const host = serverHost;
 
         // Create a new TCP client.
         const client = new Net.Socket();
@@ -34,19 +41,26 @@ class MyMaraNode {
         // The client can also receive data from the server by reading from its socket.
         client.on('data', (chunk) => {
             console.log(`Data received from the server: ${chunk.toString()}.`);
-
-            // Request an end to the connection after the data has been received.
-            // client.end();
         });
 
+        // Don't forget to catch error, for your own sake.
+        client.on('error', (err) => {
+            console.log(`Error: ${err}`);
+        });
+
+        // End connection, for your OWN SAKE.
         client.on('end', () => {
             console.log('Requested an end to the TCP connection');
         });
     }
 
+    // for testing purposes — we run this server on our localhost
     server() {
         // The port on which the server is listening.
-        const port = this._port;
+        const port = this._nodeSocket.port;
+
+        // The host on which the server is running.
+        const host = this._nodeSocket.host;
 
         // Use net.createServer() in your code. This is just for illustration purpose.
         // Create a new TCP server.
@@ -55,13 +69,13 @@ class MyMaraNode {
         // The server listens to a socket for a client to make a connection request.
         // Think of a socket as an end point.
         server.listen(port, () => {
-            console.log(`Server listening for connection requests on socket localhost:${port}.`);
+            console.log(`Server listening for connection requests on socket ${host}:${port}.`);
         });
 
         // When a client requests a connection with the server, the server creates a new
         // socket dedicated to that client.
         server.on('connection', (socket) => {
-            
+
             console.log('A new connection has been established.');
 
             // Now that a TCP connection has been established, the server can send data to
@@ -91,19 +105,26 @@ class MyMaraNode {
 
             // Don't forget to catch error, for your own sake.
             socket.on('error', (err) => {
-                console.log(`Error: ${ err }`);
+                console.log(`Error: ${err}`);
             });
         });
     }
 }
 
+// load the node
+const loadNode = () => {
+    // create node
+    const node = new MyMaraNode({ port: "18018", host: "localhost" });
+
+    // run server
+    node.server();
+
+    // connect to each of our node's trusted sockets
+    for (let socket of node.trustedSockets) {
+        // run client and connect to trusted socket
+        node.client(socket.port, socket.host);
+    }
+};
+
 // driver code
-
-// create node
-const node = new MyMaraNode({ port: "18018", host: "localhost" });
-
-// run server
-node.server();
-
-// run client
-node.client();
+loadNode();
