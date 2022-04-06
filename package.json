@@ -1,6 +1,9 @@
 {
   "dependencies": {
-    "canonicalize": "^1.0.8"
+    "abstract-level": "^1.0.3",
+    "canonicalize": "^1.0.8",
+    "level": "^8.0.0",
+    "semver": "^7.3.5"
   },
   "scripts": {
     "start": "node my-mara-node.js"
