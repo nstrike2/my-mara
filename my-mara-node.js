@@ -25,7 +25,7 @@ class MyMaraNode {
   // this socket passed in, which is the socket our node will run on, is added to our trusted sockets
   constructor(socket) {
     this.trustedSockets = [
-      { port: 18018, host: "149.28.220.241" },
+      //{ port: 18018, host: "149.28.220.241" },
       //{ port: 18018, host: "149.28.204.235" },
       //{ port: 18018, host: "139.162.130.195" },
     ];
@@ -54,8 +54,13 @@ class MyMaraNode {
 
       // The client can now send data to the server by writing to its socket.
       // event type: data
-      client.write(canonicalize(helloMsg));
+      client.write(canonicalize(helloMsg) + "\n");
     });
+
+    const GetPeers = {
+      type: "getpeers",
+    };
+    client.write(canonicalize(GetPeers) + "\n");
 
     // The client can also receive data from the server by reading from its socket.
     client.on("data", (chunk) => {
@@ -100,18 +105,37 @@ class MyMaraNode {
 
       // Now that a TCP connection has been established, the server can send data to
       // the client by writing to its socket.
-      socket.write("Hello, client.");
+
+      const helloMsg = {
+        type: "hello",
+        version: "0.8.0",
+        agent: "Marabu-Core Client 0.8",
+      };
+
+      socket.write(canonicalize(helloMsg) + "\n");
+
+      const peers = {
+        type: "peers",
+        peers: "dionyziz.com:18018",
+      };
 
       // The server can also receive data from the client by reading from its socket.
       socket.on("data", (chunk) => {
         // check if message is valid JSON object
-        if (typeof JSON.parse(chunk.toString()) === "object") {
+        if (typeof JSON.parse(chunk) === "object") {
           // check if type hello and if version of type 0.8.x
           // if not, close the connection immediately!!
           let message = JSON.parse(chunk.toString());
-          message.type === "hello" && semver.satisfies(message.version, "0.8")
-            ? console.log("Successful hello message!!")
-            : socket.end();
+          if (
+            message.type === "hello" &&
+            semver.satisfies(message.version, "0.8.x")
+          ) {
+            console.log("Successful hello message!!");
+          } else if (message.type === "getpeers") {
+            socket.write(canonicalize(peers) + "\n");
+          } else {
+            socket.end();
+          }
         } else {
           // throw error
           const error = {
@@ -119,6 +143,10 @@ class MyMaraNode {
             error: "Unsupported message type received",
           };
           throw error;
+        }
+
+        if (JSON.parse(chunk) === "object") {
+          console.log(JSON.parse(chunk));
         }
       });
 
@@ -139,7 +167,7 @@ class MyMaraNode {
 // load the node
 const loadNode = () => {
   // create node
-  const node = new MyMaraNode({ port: "18018", host: "149.28.220.241" });
+  const node = new MyMaraNode({ port: "18018", host: "localhost" });
   // run server
   node.server();
   // connect to each of our node's trusted sockets
