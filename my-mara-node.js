@@ -10,29 +10,13 @@ const semver = require("semver");
 
 const { Level } = require("level");
 
-const createBootstrappingPeers = async () => {
-  // Create a database
-  const bootstrappingPeers = new Level("bootstrappingPeers", {
-    valueEncoding: "json",
-  });
-
-  // Add an entry with key 'a' and value 1
-  await bootstrappingPeers.put(0, { port: 18018, host: "149.28.220.241" });
-  await bootstrappingPeers.put(1, { port: 18018, host: "149.28.204.235" });
-  await bootstrappingPeers.put(2, { port: 18018, host: "139.162.130.195" });
-};
-
 class MyMaraNode {
   // socket = { port: port, host: host };
-  // this socket passed in, which is the socket our node will run on, is added to our trusted sockets
+  // this socket passed in, which is the socket our node will run on, is added to our bootstrapping peers
   constructor(socket) {
-    // this.trustedSockets = [
-    //   { port: 18018, host: "149.28.220.241" },
-    //   { port: 18018, host: "149.28.204.235" },
-    //   { port: 18018, host: "139.162.130.195" },
-    // ];
     this._nodeSocket = socket;
   }
+
   client(serverPort, serverHost) {
     // The port number and hostname of the server we're trying to connect to.
     const port = serverPort;
@@ -69,7 +53,7 @@ class MyMaraNode {
 
     // The client can also receive data from the server by reading from its socket.
     client.on("data", (chunk) => {
-      console.log(`Data received from the server: ${chunk.toString()}.`);
+      console.log(`Data received from node at ${host}: ${chunk.toString()}.`);
     });
 
     // Don't forget to catch error, for your own sake.
@@ -82,6 +66,7 @@ class MyMaraNode {
       console.log("Requested an end to the TCP connection");
     });
   }
+
   // for testing purposes — we run this server on our localhost
   server() {
     // The port on which the server is listening.
@@ -165,22 +150,37 @@ class MyMaraNode {
 }
 
 // load the node
-const loadNode = () => {
-  // create node
-  const node = new MyMaraNode({ port: "18018", host: "localhost" });
+const loadNode = async () => {
+  // Create a database for initial bootstrapping peers
+  const bootstrappingPeers = new Level("bootstrappingPeers", {
+    valueEncoding: "json",
+  });
 
-  // run server
+  const socket = { port: "18018", host: "localhost" };
+
+  // put initial peers from protocol into our database
+  const initialPeers = [
+    { port: 18018, host: "149.28.220.241" },
+    // { port: 18018, host: "149.28.204.235" },
+    // { port: 18018, host: "139.162.130.195" },
+    socket,
+  ];
+
+  for (const [index, socket] of initialPeers.entries()) {
+    await bootstrappingPeers.put(index, socket);
+  }
+
+  // create our node
+  // const node = new MyMaraNode({ port: "18018", host: "localhost" });
+  const node = new MyMaraNode(socket);
+
+  // run server from our node
   node.server();
 
-  // create boostrapping peers database
-  createBootstrappingPeers();
-
-  // connect to each of our node's trusted sockets
-  //for (let socket of node.trustedSockets) {
-  // run client and connect to trusted socket
-  //  node.client(socket.port, socket.host);
-  //}
-  node.client("18018", "localhost");
+  // connect to each of our node's trusted sockets from database
+  for await (const [index, socket] of bootstrappingPeers.iterator()) {
+    node.client(socket.port, socket.host);
+  }
 };
 
 // driver code
