@@ -133,7 +133,7 @@ class MyMaraNode {
               ) {
                 console.log("Successful hello message!!");
               } else if (message.type === "getpeers") {
-                socket.write((peers) + "\n");
+                socket.write(peers + "\n");
                 console.log(
                   "Sent these peers to client: " + JSON.stringify(peers)
                 );
@@ -158,7 +158,7 @@ class MyMaraNode {
               type: "error",
               error: "Message is not valid JSON",
             };
-            throw error;
+            socket.write(canonicalize(error));
             console.log(e);
             socket.end();
           }
