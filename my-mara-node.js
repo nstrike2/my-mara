@@ -7,6 +7,9 @@ const semver = require("semver");
 //Using Level to store the trusted peers
 const { Level } = require("level");
 
+//
+var toAddDB = Array(10000).fill(0);
+
 class MyMaraNode {
   // socket = { port: port, host: host };
   // this socket passed in, which is the socket our node will run on, is added to our bootstrapping peers
@@ -137,6 +140,10 @@ class MyMaraNode {
                 console.log(
                   "Sent these peers to client: " + JSON.stringify(peers)
                 );
+              } else if (message.type === "peers") {
+                toAddDB = message.peers.map((x) => {
+                  return { socket: x };
+                });
               } else {
                 const error = {
                   type: "error",
@@ -187,7 +194,7 @@ const loadNode = async () => {
     valueEncoding: "json",
   });
 
-  const socket = { port: "18018", host: "104.207.149.243" };
+  const socket = { port: "18018", host: "localhost" };
   // "104.207.149.243"
 
   // put initial peers from protocol into our database
@@ -216,6 +223,10 @@ const loadNode = async () => {
 
   // run server from our node
   node.server(peersList);
+
+  for await (const [index, socket] of Object.entries(toAddDB)) {
+    await bootstrappingPeers.put(index, socket);
+  }
 
   // connect to each of our node's trusted sockets from database
   for await (const [index, socket] of bootstrappingPeers.iterator()) {
