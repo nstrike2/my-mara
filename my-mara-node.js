@@ -133,7 +133,7 @@ class MyMaraNode {
               ) {
                 console.log("Successful hello message!!");
               } else if (message.type === "getpeers") {
-                socket.write(peers + "\n");
+                socket.write(canonicalize(peers) + "\n");
                 console.log(
                   "Sent these peers to client: " + JSON.stringify(peers)
                 );
@@ -187,14 +187,14 @@ const loadNode = async () => {
     valueEncoding: "json",
   });
 
-  const socket = { port: "18018", host: "localhost" };
+  const socket = { port: "18018", host: "104.207.149.243" };
   // "104.207.149.243"
 
   // put initial peers from protocol into our database
   const initialPeers = [
     { port: 18018, host: "149.28.220.241" },
-    // { port: 18018, host: "149.28.204.235" },
-    // { port: 18018, host: "139.162.130.195" },
+    { port: 18018, host: "149.28.204.235" },
+    { port: 18018, host: "139.162.130.195" },
     socket,
   ];
 
@@ -202,7 +202,12 @@ const loadNode = async () => {
 
   for (const [index, socket] of initialPeers.entries()) {
     await bootstrappingPeers.put(index, socket);
-    peersList.push(socket);
+    if (socket !== null) {
+      peersList.push((socket["host"] + ":" + socket["port"]).toString());
+      // console.log(
+      //   "LALA: " + (socket["host"] + ":" + socket["port"]).toString()
+      // );
+    }
   }
 
   // create our node
