@@ -71,7 +71,7 @@ class MyMaraNode {
   }
 
   // for testing purposes — we run this server on our localhost
-  server() {
+  server(peersList) {
     // The port on which the server is listening.
     const port = this._nodeSocket.port;
     // The host on which the server is running.
@@ -105,10 +105,16 @@ class MyMaraNode {
 
       socket.write(canonicalize(helloMsg) + "\n");
       socket.write(canonicalize(GetPeers) + "\n");
+
+      // let peersList = new Array(bootstrappingPeers.iterator().length);
+
+      console.log(peersList);
+
       const peers = {
         type: "peers",
-        peers: "dionyziz.com:18018",
+        peers: peersList,
       };
+
       // The server can also receive data from the client by reading from its socket.
       socket.on("data", (chunk) => {
         let array_chunk = chunk.toString().split("\n");
@@ -127,7 +133,7 @@ class MyMaraNode {
               ) {
                 console.log("Successful hello message!!");
               } else if (message.type === "getpeers") {
-                socket.write(canonicalize(peers) + "\n");
+                socket.write((peers) + "\n");
                 console.log(
                   "Sent these peers to client: " + JSON.stringify(peers)
                 );
@@ -181,7 +187,8 @@ const loadNode = async () => {
     valueEncoding: "json",
   });
 
-  const socket = { port: "18018", host: "104.207.149.243" };
+  const socket = { port: "18018", host: "localhost" };
+  // "104.207.149.243"
 
   // put initial peers from protocol into our database
   const initialPeers = [
@@ -191,8 +198,11 @@ const loadNode = async () => {
     socket,
   ];
 
+  let peersList = new Array(bootstrappingPeers.iterator().length);
+
   for (const [index, socket] of initialPeers.entries()) {
     await bootstrappingPeers.put(index, socket);
+    peersList.push(socket);
   }
 
   // create our node
@@ -200,7 +210,7 @@ const loadNode = async () => {
   const node = new MyMaraNode(socket);
 
   // run server from our node
-  node.server();
+  node.server(peersList);
 
   // connect to each of our node's trusted sockets from database
   for await (const [index, socket] of bootstrappingPeers.iterator()) {
