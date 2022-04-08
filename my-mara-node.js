@@ -1,13 +1,10 @@
 // Include Nodejs' net module.
 const Net = require("net");
-
 // Use JSON Canonicalize package
 const canonicalize = require("canonicalize");
-
 //Using semver to check the node version
-
 const semver = require("semver");
-
+//Using Level to store the trusted peers
 const { Level } = require("level");
 
 class MyMaraNode {
@@ -51,7 +48,13 @@ class MyMaraNode {
       console.log("Sent GetPeers Msg");
     });
 
-    // The client can also receive data from the server by reading from its socket.
+    // The client can also receive data from the server by reading from its socket
+
+    const peers = {
+      type: "peers",
+      peers: "dionyziz.com:18018",
+    };
+
     client.on("data", (chunk) => {
       console.log(`Data received from node at ${host}: ${chunk.toString()}.`);
     });
@@ -95,7 +98,13 @@ class MyMaraNode {
         version: "0.8.0",
         agent: "Marabu-Core Client 0.8",
       };
+
+      const GetPeers = {
+        type: "getpeers",
+      };
+
       socket.write(canonicalize(helloMsg) + "\n");
+      socket.write(canonicalize(GetPeers) + "\n");
       const peers = {
         type: "peers",
         peers: "dionyziz.com:18018",
@@ -107,31 +116,47 @@ class MyMaraNode {
 
         for (let payload of array_chunk.slice(0, -1)) {
           // check if message is valid JSON object
-          if (typeof JSON.parse(payload) === "object") {
-            // check if type hello and if version of type 0.8.x
-            // if not, close the connection immediately!!
-            let message = JSON.parse(payload.toString());
-            if (
-              message.type === "hello" &&
-              semver.satisfies(message.version, "0.8.x")
-            ) {
-              console.log("Successful hello message!!");
-            } else if (message.type === "getpeers") {
-              socket.write(canonicalize(peers) + "\n");
-              console.log(
-                "Sent these peers to client: " + JSON.stringify(peers)
-              );
+          try {
+            if (typeof JSON.parse(payload) === "object") {
+              // check if type hello and if version of type 0.8.x
+              // if not, close the connection immediately!!
+              let message = JSON.parse(payload.toString());
+              if (
+                message.type === "hello" &&
+                semver.satisfies(message.version, "0.8.x")
+              ) {
+                console.log("Successful hello message!!");
+              } else if (message.type === "getpeers") {
+                socket.write(canonicalize(peers) + "\n");
+                console.log(
+                  "Sent these peers to client: " + JSON.stringify(peers)
+                );
+              } else {
+                const error = {
+                  type: "error",
+                  error: "Unsupported message type received",
+                };
+                array_chunk = [];
+                throw error;
+                socket.end();
+              }
             } else {
-              socket.end();
+              // throw error
+              const error = {
+                type: "error",
+                error: "Message is not valid JSON",
+              };
             }
-          } else {
-            // throw error
+          } catch (e) {
             const error = {
               type: "error",
-              error: "Unsupported message type received",
+              error: "Message is not valid JSON",
             };
             throw error;
+            console.log(e);
+            socket.end();
           }
+          array_chunk = [];
         }
       });
 
@@ -156,7 +181,7 @@ const loadNode = async () => {
     valueEncoding: "json",
   });
 
-  const socket = { port: "18018", host: "localhost" };
+  const socket = { port: "18018", host: "104.207.149.243" };
 
   // put initial peers from protocol into our database
   const initialPeers = [
