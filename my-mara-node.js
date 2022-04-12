@@ -10,8 +10,8 @@ const { Level } = require("level");
 // A class built to ensure we ingest messages to our buffer in full, as opposed to in incomplete chunks
 class MessageBuffer {
   constructor(delimiter) {
-    this.delimiter = delimiter
-    this.buffer = ""
+    this.delimiter = delimiter;
+    this.buffer = "";
   }
 
   isFinished() {
@@ -25,17 +25,17 @@ class MessageBuffer {
   }
 
   push(data) {
-    this.buffer += data
+    this.buffer += data;
   }
 
   getMessage() {
-    const delimiterIndex = this.buffer.indexOf(this.delimiter)
+    const delimiterIndex = this.buffer.indexOf(this.delimiter);
     if (delimiterIndex !== -1) {
-      const message = this.buffer.slice(0, delimiterIndex)
-      this.buffer = this.buffer.replace(message + this.delimiter, "")
-      return message
+      const message = this.buffer.slice(0, delimiterIndex);
+      this.buffer = this.buffer.replace(message + this.delimiter, "");
+      return message;
     }
-    return null
+    return null;
   }
 
   handleData() {
@@ -45,8 +45,8 @@ class MessageBuffer {
      * If the server isnt sending delimiters for some reason
      * then nothing will ever come back for these requests
      */
-    const message = this.getMessage()
-    return message
+    const message = this.getMessage();
+    return message;
   }
 }
 
@@ -115,8 +115,7 @@ class MyMaraNode {
     let received = new MessageBuffer("\n");
 
     client.on("data", async (chunk) => {
-
-      received.push(chunk)
+      received.push(chunk);
 
       // once our chunks make up the entire, complete message in our buffer and process it
       while (received.isFinished()) {
@@ -127,7 +126,6 @@ class MyMaraNode {
         console.log(`Received data from ${host} server: ${array_chunk}.`);
 
         for (let payload of array_chunk) {
-
           try {
             // check if message is valid JSON object
             if (typeof JSON.parse(payload) === "object") {
@@ -135,21 +133,28 @@ class MyMaraNode {
               // if not, close the connection immediately!!
               let message = JSON.parse(payload.toString());
 
-              if (message.type === "hello" && semver.satisfies(message.version, "0.8.x")) {
+              if (
+                message.type === "hello" &&
+                semver.satisfies(message.version, "0.8.x")
+              ) {
                 console.log("Received hello message from server");
               } else if (message.type === "getpeers") {
                 console.log("Received getpeers message from server");
 
                 // fetch peers
-                const peersList = await this.fetchPeersList(this._bootstrappingPeers);
+                const peersList = await this.fetchPeersList(
+                  this._bootstrappingPeers
+                );
 
                 const peers = {
                   type: "peers",
-                  peers: peersList
+                  peers: peersList,
                 };
 
                 client.write(canonicalize(peers) + "\n");
-                console.log("Sent these peers to server: " + JSON.stringify(peers));
+                console.log(
+                  "Sent these peers to server: " + JSON.stringify(peers)
+                );
               } else if (message.type === "peers") {
                 console.log("Got peers message from server");
 
@@ -157,17 +162,24 @@ class MyMaraNode {
                 for (let peer of message.peers) {
                   if (peer !== null && typeof peer !== "undefined") {
                     let [host, port] = peer.split(":");
-                    if (!host.toLowerCase().includes("null") && !host.toLowerCase().includes("undefined")) {
-                      if (!port.toLowerCase().includes("null") && !port.toLowerCase().includes("undefined")) {
+                    if (
+                      !host.toLowerCase().includes("null") &&
+                      !host.toLowerCase().includes("undefined")
+                    ) {
+                      if (
+                        !port.toLowerCase().includes("null") &&
+                        !port.toLowerCase().includes("undefined")
+                      ) {
                         const socket = { port: port, host: host };
-                        const peers = await this._bootstrappingPeers.iterator().all();
+                        const peers = await this._bootstrappingPeers
+                          .iterator()
+                          .all();
                         const index = peers.length;
                         await this._bootstrappingPeers.put(index, socket);
                       }
                     }
                   }
                 }
-
               } else {
                 const error = {
                   type: "error",
@@ -227,6 +239,7 @@ class MyMaraNode {
     // When a client requests a connection with the server, the server creates a new
     // socket dedicated to that client.
     server.on("connection", async (socket) => {
+      let handshake = false;
       console.log("A new connection to the server has been established.");
       // Now that a TCP connection has been established, the server can send data to
       // the client by writing to its socket.
@@ -253,8 +266,7 @@ class MyMaraNode {
 
       // The server can also receive data from the client by reading from its socket.
       socket.on("data", async (chunk) => {
-
-        received.push(chunk)
+        received.push(chunk);
 
         // once our chunks make up the entire, complete message in our buffer and process it
         while (received.isFinished()) {
@@ -271,29 +283,40 @@ class MyMaraNode {
                 // check if type hello and if version of type 0.8.x
                 // if not, close the connection immediately!!
                 let message = JSON.parse(payload.toString());
-                if (message.type === "hello" && semver.satisfies(message.version, "0.8.x")) {
+                if (
+                  message.type === "hello" &&
+                  semver.satisfies(message.version, "0.8.x") &&
+                  handshake === false
+                ) {
+                  handshake = true;
                   console.log("Received hello message from client");
-                } else if (message.type === "getpeers") {
+                } else if (message.type === "getpeers" && handshake === true) {
                   console.log("Received getpeers message from client");
 
                   // fetch peers
-                  const peersList = await this.fetchPeersList(this._bootstrappingPeers);
+                  const peersList = await this.fetchPeersList(
+                    this._bootstrappingPeers
+                  );
 
                   const peers = {
                     type: "peers",
-                    peers: peersList
+                    peers: peersList,
                   };
 
                   socket.write(canonicalize(peers) + "\n");
-                  console.log("Sent these peers to client: " + JSON.stringify(peers));
-                } else if (message.type === "peers") {
+                  console.log(
+                    "Sent these peers to client: " + JSON.stringify(peers)
+                  );
+                } else if (message.type === "peers" && handshake === true) {
                   console.log("Got peers message from client");
 
                   // add peers received to our database
                   for (let peer of message.peers) {
                     let [host, port] = peer.split(":");
                     const socket = { port: port, host: host };
-                    const peers = await this._bootstrappingPeers.iterator().all();
+                    const peers = await this._bootstrappingPeers
+                      .iterator()
+                      .all();
                     const index = peers.length;
                     await this._bootstrappingPeers.put(index, socket);
                   }
@@ -372,8 +395,16 @@ const loadNode = async () => {
     if (socket !== "" && socket !== null && typeof socket !== "undefined") {
       const port = String(socket.port);
       const host = String(socket.host);
-      if (port !== "" && !port.toLowerCase().includes("null") && !port.toLowerCase().includes("undefined")) {
-        if (host !== "" && !host.toLowerCase().includes("null") && !host.toLowerCase().includes("undefined")) {
+      if (
+        port !== "" &&
+        !port.toLowerCase().includes("null") &&
+        !port.toLowerCase().includes("undefined")
+      ) {
+        if (
+          host !== "" &&
+          !host.toLowerCase().includes("null") &&
+          !host.toLowerCase().includes("undefined")
+        ) {
           node.client(socket.port, socket.host);
         }
       }
