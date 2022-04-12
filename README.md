@@ -1,5 +1,5 @@
 # my-mara
-Our Marabu blockchain for Stanford's EE374!!
+Our very own Marabu blockchain!!
 
 To start our node, run...
 ```sh
