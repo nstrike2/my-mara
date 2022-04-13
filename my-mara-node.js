@@ -104,6 +104,7 @@ class MyMaraNode {
   // }
 
   // run client
+
   client(serverPort, serverHost) {
     // The port number and hostname of the server we're trying to connect to.
     const port = serverPort;
@@ -145,6 +146,7 @@ class MyMaraNode {
 
     client.on("data", async (chunk) => {
       received.push(chunk);
+      let handshake = false;
 
       // once our chunks make up the entire, complete message in our buffer and process it
       while (received.isFinished()) {
@@ -167,6 +169,7 @@ class MyMaraNode {
                 semver.satisfies(message.version, "0.8.x")
               ) {
                 console.log("Received hello message from server");
+                handshake = true;
               } else if (message.type === "getpeers") {
                 console.log("Received getpeers message from server");
 
@@ -563,14 +566,14 @@ const loadNode = async () => {
     valueEncoding: "json",
   });
 
-  const socket = { port: "18018", host: "localhost" };
+  const socket = { port: "18018", host: "104.207.149.243" };
 
   // put initial peers from protocol into our database
   const initialPeers = [
-    //{ port: 18018, host: "149.28.220.241" },
+    { port: 18018, host: "149.28.220.241" },
     //{ port: 18018, host: "149.28.204.235" },
     //{ port: 18018, host: "139.162.130.195" },
-    socket,
+    //socket,
   ];
 
   // load up database with our initial peers
