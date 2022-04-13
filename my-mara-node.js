@@ -4,8 +4,13 @@ const Net = require("net");
 const canonicalize = require("canonicalize");
 //Using semver to check the node version
 const semver = require("semver");
-//Using Level to store the trusted peers
+//Using Level to store the trusted peers and the objects and object ID's
+// Object ID is hash of the canonicalized object
 const { Level } = require("level");
+// Using fast-sha256 to hash the objects
+const sha256 = require("fast-sha256");
+// Using nacl to convert Uint8 arrays to strings
+//const nacl = require("stablelib/utf8");
 
 // A class built to ensure we ingest messages to our buffer in full, as opposed to in incomplete chunks
 class MessageBuffer {
@@ -53,9 +58,11 @@ class MessageBuffer {
 class MyMaraNode {
   // socket = { port: port, host: host };
   // this socket passed in, which is the socket our node will run on, is added to our bootstrapping peers
-  constructor(socket, bootstrappingPeers) {
+  // knownObjects = { objectid: Hash of object, object: either block or transaction}
+  constructor(socket, bootstrappingPeers, knownObjects) {
     this._nodeSocket = socket;
     this._bootstrappingPeers = bootstrappingPeers;
+    this._knownObjects = knownObjects;
   }
 
   // fetch most recent version of bootstrapping peers database as a list
@@ -73,6 +80,30 @@ class MyMaraNode {
     // return list
     return peersList;
   }
+
+  // fetch most recent version of objectsID's as a list
+  async fetchObjectIDs(knownObjects) {
+    let knownObjectIDS = [];
+
+    // iterate through most recent version of knownObjects database
+    for await (const [index, object] of knownObjects.iterator()) {
+      knownObjectIDS.push(object["objectid"]);
+    }
+
+    // return list of known objectid's
+    return knownObjectIDS;
+  }
+
+  // async fetchObject(knownObjects, objectid) {
+
+  //   // iterate through most recent version of knownObjects database
+  //   for await (const [index, object] of knownObjects.iterator()) {
+  //     knownObjectIDS.push((object['objectid']).toString())
+  //   }
+
+  //   // return list of known objectid's
+  //   return knownObjectIDS;
+  // }
 
   // run client
   client(serverPort, serverHost) {
@@ -180,6 +211,68 @@ class MyMaraNode {
                     }
                   }
                 }
+              } else if (message.type === "ihaveobject" && handshake === true) {
+                const objectids = await this.fetchObjectIDs(this._knownObjects);
+
+                if (objectids.includes(message.objectid)) {
+                  console.log("Object already present in database");
+                } else {
+                  const getobject = {
+                    type: "getobject",
+                    objectid: message.objectid,
+                  };
+                  socket.write(canonicalize(getobject) + "\n");
+                }
+              } else if (
+                message.type === "transaction" ||
+                message.type === "block"
+                // have to add && handshake equals to true here
+              ) {
+                const messageHash = sha256(message);
+
+                const objectids = await this.fetchObjectIDs(this._knownObjects);
+
+                if (objectids.includes(messageHash)) {
+                  console.log("Object already present in database");
+                } else {
+                  const object = {
+                    objectid: messageHash,
+                    object: message,
+                  };
+
+                  const objectsindb = await this._knownObjects.iterator().all();
+                  const index = objectsindb.length;
+                  await this._knownObjects.put(index, object);
+
+                  const IHaveObject = {
+                    type: "ihaveobject",
+                    objectid: messageHash,
+                  };
+
+                  socket.write(canonicalize(IHaveObject) + "\n");
+                }
+              } else if (message.type === "getobject" && handshake === true) {
+                //check if objectid is in database
+                console.log("Recieved getobject message from client");
+
+                const objectids = await this.fetchObjectIDs(this._knownObjects);
+
+                if (objectids.includes(message.objectid)) {
+                  //const objectfromdb = await this.fetchObject(this._knownObjects, message.objectid)
+                  const objectfromdb = {
+                    T: "00000002af000000000000000000000000000000000000000000000000000000",
+                    created: 1624219079,
+                    miner: "dionyziz",
+                    nonce:
+                      "0000000000000000000000000000000000000000000000000000002634878840",
+                    note: "The Economist 2021-06-20: Crypto-miners are probably to blame for the graphics-chip shortage",
+                    previd: null,
+                    txids: [],
+                    type: "block",
+                  };
+                  console.log("Sent Object to client");
+                  socket.write(canonicalize(objectfromdb) + "\n");
+                }
               } else {
                 const error = {
                   type: "error",
@@ -194,6 +287,7 @@ class MyMaraNode {
                 type: "error",
                 error: "Message is not valid JSON",
               };
+              client.end();
             }
           } catch (e) {
             const error = {
@@ -320,6 +414,79 @@ class MyMaraNode {
                     const index = peers.length;
                     await this._bootstrappingPeers.put(index, socket);
                   }
+                } else if (
+                  message.type === "ihaveobject" &&
+                  handshake === true
+                ) {
+                  const objectids = await this.fetchObjectIDs(
+                    this._knownObjects
+                  );
+
+                  if (objectids.includes(message.objectid)) {
+                    console.log("Object already present in database");
+                  } else {
+                    const getobject = {
+                      type: "getobject",
+                      objectid: message.objectid,
+                    };
+                    socket.write(canonicalize(getobject) + "\n");
+                  }
+                } else if (
+                  message.type === "transaction" ||
+                  message.type === "block"
+                  // have to add && handshake equals to true here
+                ) {
+                  const messageHash = sha256(message);
+
+                  const objectids = await this.fetchObjectIDs(
+                    this._knownObjects
+                  );
+
+                  if (objectids.includes(messageHash)) {
+                    console.log("Object already present in database");
+                  } else {
+                    const object = {
+                      objectid: messageHash,
+                      object: message,
+                    };
+
+                    const objectsindb = await this._knownObjects
+                      .iterator()
+                      .all();
+                    const index = objectsindb.length;
+                    await this._knownObjects.put(index, object);
+
+                    const IHaveObject = {
+                      type: "ihaveobject",
+                      objectid: messageHash,
+                    };
+
+                    socket.write(canonicalize(IHaveObject) + "\n");
+                  }
+                } else if (message.type === "getobject" && handshake === true) {
+                  //check if objectid is in database
+                  console.log("Recieved getobject message from client");
+
+                  const objectids = await this.fetchObjectIDs(
+                    this._knownObjects
+                  );
+
+                  if (objectids.includes(message.objectid)) {
+                    //const objectfromdb = await this.fetchObject(this._knownObjects, message.objectid)
+                    const objectfromdb = {
+                      T: "00000002af000000000000000000000000000000000000000000000000000000",
+                      created: 1624219079,
+                      miner: "dionyziz",
+                      nonce:
+                        "0000000000000000000000000000000000000000000000000000002634878840",
+                      note: "The Economist 2021-06-20: Crypto-miners are probably to blame for the graphics-chip shortage",
+                      previd: null,
+                      txids: [],
+                      type: "block",
+                    };
+                    console.log("Sent Object to client");
+                    socket.write(canonicalize(objectfromdb) + "\n");
+                  }
                 } else {
                   const error = {
                     type: "error",
@@ -334,6 +501,7 @@ class MyMaraNode {
                   type: "error",
                   error: "Message is not valid JSON",
                 };
+                socket.end();
               }
             } catch (e) {
               const error = {
@@ -365,17 +533,39 @@ class MyMaraNode {
 // load the node
 const loadNode = async () => {
   // Create a database for initial bootstrapping peers
+  const GenesisBlock = {
+    T: "00000002af000000000000000000000000000000000000000000000000000000",
+    created: 1624219079,
+    miner: "dionyziz",
+    nonce: "0000000000000000000000000000000000000000000000000000002634878840",
+    note: "The Economist 2021-06-20: Crypto-miners are probably to blame for the graphics-chip shortage",
+    previd: null,
+    txids: [],
+    type: "block",
+  };
+
+  const GenesisBlockID =
+    "00000000a420b7cefa2b7730243316921ed59ffe836e111ca3801f82a4f5360e";
+
+  const genesishash = sha256(canonicalize(GenesisBlock));
+  console.log("Neetish bhai");
+
+  //Have to convert from Uint8Array to string
+
+  //let str = Buffer.from(testingsha.buffer).toString();
+  console.log(`${genesishash}`);
+
   const bootstrappingPeers = new Level("bootstrappingPeers", {
     valueEncoding: "json",
   });
 
-  const socket = { port: "18018", host: "104.207.149.243" };
+  const socket = { port: "18018", host: "localhost" };
 
   // put initial peers from protocol into our database
   const initialPeers = [
-    { port: 18018, host: "149.28.220.241" },
-    { port: 18018, host: "149.28.204.235" },
-    { port: 18018, host: "139.162.130.195" },
+    //{ port: 18018, host: "149.28.220.241" },
+    //{ port: 18018, host: "149.28.204.235" },
+    //{ port: 18018, host: "139.162.130.195" },
     socket,
   ];
 
@@ -384,8 +574,34 @@ const loadNode = async () => {
     await bootstrappingPeers.put(index, socket);
   }
 
+  const knownObjects = new Level("knownObjects", {
+    valueEncoding: "json",
+  });
+
+  const ObjectsToBeAddedtoDB = [
+    {
+      object: {
+        T: "00000002af000000000000000000000000000000000000000000000000000000",
+        created: 1624219079,
+        miner: "dionyziz",
+        nonce:
+          "0000000000000000000000000000000000000000000000000000002634878840",
+        note: "The Economist 2021-06-20: Crypto-miners are probably to blame for the graphics-chip shortage",
+        previd: null,
+        txids: [],
+        type: "block",
+      },
+      objectID:
+        "00000000a420b7cefa2b7730243316921ed59ffe836e111ca3801f82a4f5360e",
+    },
+  ];
+
+  for (const [index, socket] of ObjectsToBeAddedtoDB.entries()) {
+    await knownObjects.put(index, socket);
+  }
+
   // create our node
-  const node = new MyMaraNode(socket, bootstrappingPeers);
+  const node = new MyMaraNode(socket, bootstrappingPeers, knownObjects);
 
   // run server from our node
   node.server();
