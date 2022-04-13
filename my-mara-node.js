@@ -9,8 +9,6 @@ const semver = require("semver");
 const { Level } = require("level");
 // Using fast-sha256 to hash the objects
 const sha256 = require("fast-sha256");
-// Using nacl to convert Uint8 arrays to strings
-//const nacl = require("stablelib/utf8");
 
 // A class built to ensure we ingest messages to our buffer in full, as opposed to in incomplete chunks
 class MessageBuffer {
@@ -228,7 +226,9 @@ class MyMaraNode {
                 message.type === "block"
                 // have to add && handshake equals to true here
               ) {
-                const messageHash = sha256(message);
+                const messageHash = Buffer.from(sha256(message)).toString(
+                  "hex"
+                );
 
                 const objectids = await this.fetchObjectIDs(this._knownObjects);
 
@@ -436,7 +436,9 @@ class MyMaraNode {
                   message.type === "block"
                   // have to add && handshake equals to true here
                 ) {
-                  const messageHash = sha256(message);
+                  const messageHash = Buffer.from(sha256(message)).toString(
+                    "hex"
+                  );
 
                   const objectids = await this.fetchObjectIDs(
                     this._knownObjects
@@ -547,13 +549,15 @@ const loadNode = async () => {
   const GenesisBlockID =
     "00000000a420b7cefa2b7730243316921ed59ffe836e111ca3801f82a4f5360e";
 
-  const genesishash = sha256(canonicalize(GenesisBlock));
+  const genesishash = Buffer.from(sha256(canonicalize(GenesisBlock))).toString(
+    "hex"
+  );
   console.log("Neetish bhai");
 
   //Have to convert from Uint8Array to string
 
   //let str = Buffer.from(testingsha.buffer).toString();
-  console.log(`${genesishash}`);
+  console.log(`${typeof genesishash}`);
 
   const bootstrappingPeers = new Level("bootstrappingPeers", {
     valueEncoding: "json",
