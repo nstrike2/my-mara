@@ -1,5 +1,3 @@
-import { validation } from "./transactions.js";
-
 // Include Nodejs' net module.
 const Net = require("net");
 // Use JSON Canonicalize package
@@ -65,6 +63,123 @@ class MyMaraNode {
     this._knownObjects = knownObjects;
   }
 
+  async validation(knownObjects, transaction) {
+    const inputs = transaction.object.inputs;
+    const outputs = transaction.object.outputs;
+    let totalInputValue = 0;
+    let totalOutputValue = 0;
+    console.log(inputs);
+    for (var ip = 0; ip < inputs.length; ip++) {
+      const message = {
+        type: "transaction",
+        inputs: {
+          outpoint: inputs[ip].outpoint,
+          sig: null,
+        },
+        outputs: outputs,
+      };
+
+      const txid = inputs[ip].outpoint.txid;
+      const signature = inputs[ip].sig;
+      const index = inputs[ip].outpoint.txid;
+
+      try {
+        if (await knownObjects.exists(txid)) {
+          const RetrievedObject = await knownObjects.get(txid);
+          const publicKey = RetrievedObject.outputs[index].pubkey;
+        } else {
+          console.log("We do not have that object");
+          const publicKey = null;
+        }
+
+        // look up the levels db and find the txid - it's outputs - get the pubkey.
+        // look up the levels db and find the txid - it's outputs - get the pubkey.
+
+        if (!validateSignature(message, signature, publicKey)) return false;
+        if (!doesTxExist(txid)) return false;
+        if (!checkIndex(txid, index)) return false;
+        totalInputValue =
+          totalInputValue +
+          getValueForInput(inputs[ip].outpoint.txid, inputs[ip].outpoint.index);
+      } catch (e) {
+        console.log(e);
+      }
+    }
+
+    for (var op = 0; op < transaction.outputs.length; op++) {
+      var value = outputs[op].value;
+      var pubkey = outputs[op].pubkey;
+
+      if (!validatePubKey(pubkey)) return false;
+      if (value < 0) return false;
+
+      totalOutputValue = totalOutputValue + value;
+    }
+
+    if (totalOutputValue > totalInputValue) return false;
+
+    return true;
+  }
+
+  validateSignature(message, signature, publicKey) {
+    if (
+      ed25519.Verify(
+        Buffer.from(canonicalize(message), "utf8"),
+        Buffer.from(signature, "hex"),
+        Buffer.from(publicKey, "hex")
+      )
+    ) {
+      return true;
+    }
+
+    return false;
+  }
+
+  async doesTxExist(knownObjects, txid) {
+    // check if this txid exists in the db
+    try {
+      if (await knownObjects.exists(txid)) {
+        return true;
+      }
+    } catch (e) {
+      return false;
+    }
+    // will return true if there is tx
+    // if no tx then it would return false
+  }
+
+  async checkIndex(knownObjects, txid, index) {
+    // fetch the txid - check the number of outputs it has
+    const RetrievedObject = await knownObjects.gets(txid);
+
+    const noOfOutputs = RetrievedObject.outputs.length;
+    if (index <= noOfOutputs) {
+      return true;
+    } else {
+      console.log("Too less outputs... ");
+      return false;
+    }
+  }
+
+  validatePubKey(pubkey) {
+    if (!pubkey.length == 64) return false;
+    return true;
+  }
+
+  async getValueForInput(knownObjects, txid, index) {
+    // find the txid
+
+    const transaction = await knownObjects.get(txid);
+    // get output from tx;
+    const outputs = transaction.outputs;
+
+    // iterate through the the tx output to find the op that matches with the index
+    // get it's value and return
+    const value = outputs[index].value;
+
+    return value;
+  }
+
   // fetch most recent version of bootstrapping peers database as a list
   async fetchPeersList(bootstrappingPeers) {
     let peersList = [];
@@ -84,12 +199,10 @@ class MyMaraNode {
   // fetch most recent version of objectsID's as a list
   async fetchObjectIDs(knownObjects) {
     let knownObjectIDS = [];
-    let Objects = [];
 
     // iterate through most recent version of knownObjects database
     for await (const [index, object] of knownObjects.iterator()) {
       knownObjectIDS.push(index);
-      Objects.push(object);
     }
 
     // return list of known objectid's
@@ -231,7 +344,9 @@ class MyMaraNode {
                 message.type === "block"
               ) {
                 console.log("Got a block or a transaction as a message");
-                const messageHash = Buffer.from(sha256(message)).toString(
+                let encoder = new TextEncoder();
+                let uint8array = encoder.encode(canonicalize(message));
+                const messageHash = Buffer.from(sha256(uint8array)).toString(
                   "hex"
                 );
 
@@ -240,14 +355,9 @@ class MyMaraNode {
                 if (objectids.includes(messageHash)) {
                   console.log("Object already present in database");
                 } else {
-                  const object = {
-                    objectid: messageHash,
-                    object: message,
-                  };
-
                   const objectsindb = await this._knownObjects.iterator().all();
                   const index = objectsindb.length;
-                  await this._knownObjects.put(index, object);
+                  await this._knownObjects.put(messageHash, message);
 
                   const IHaveObject = {
                     type: "ihaveobject",
@@ -434,7 +544,9 @@ class MyMaraNode {
                   // have to add && handshake equals to true here
                 ) {
                   console.log("Got a transaction or a block message");
-                  const messageHash = Buffer.from(sha256(message)).toString(
+                  let encoder = new TextEncoder();
+                  let uint8array = encoder.encode(canonicalize(message));
+                  const messageHash = Buffer.from(sha256(uint8array)).toString(
                     "hex"
                   );
 
@@ -445,17 +557,8 @@ class MyMaraNode {
                   if (objectids.includes(messageHash)) {
                     console.log("Object already present in database");
                   } else {
-                    if (validation(this._knownObjects, message)) {
-                      const object = {
-                        objectid: messageHash,
-                        object: message,
-                      };
-
-                      const objectsindb = await this._knownObjects
-                        .iterator()
-                        .all();
-                      const index = objectsindb.length;
-                      await this._knownObjects.put(index, object);
+                    if (this.validation(this._knownObjects, message)) {
+                      await this._knownObjects.put(messageHash, message);
 
                       const IHaveObject = {
                         type: "ihaveobject",
@@ -542,16 +645,17 @@ const loadNode = async () => {
   const GenesisBlockID =
     "00000000a420b7cefa2b7730243316921ed59ffe836e111ca3801f82a4f5360e";
 
-  const genesishash = Buffer.from(sha256(canonicalize(GenesisBlock))).toString(
-    "hex"
-  );
+  let encoder = new TextEncoder();
+  let uint8array = encoder.encode(canonicalize(GenesisBlock));
+
+  const genesishash = Buffer.from(sha256(uint8array)).toString("hex");
   //const genesishash = Buffer.from(sha256(canonicalize(GenesisBlock)), "hex");
-  //console.log("Neetish bhai");
-  //console.log(`${genesishash.toString()}`);
+  console.log("Neetish bhai");
+  console.log(`${genesishash.toString()}`);
 
   //Have to convert from Uint8Array to string
 
-  //console.log(`${typeof genesishash}`);
+  console.log(`${typeof genesishash}`);
 
   // Create a database for initial bootstrapping peers
 
@@ -559,17 +663,17 @@ const loadNode = async () => {
     valueEncoding: "json",
   });
 
-  //const socket = { port: "18018", host: "104.207.149.243" };
+  const socket = { port: "18018", host: "104.207.149.243" };
 
   //to use for debugging
-  const socket = { port: "18018", host: "localhost" };
+  //const socket = { port: "18018", host: "localhost" };
 
   // put initial peers from protocol into our database
   const initialPeers = [
-    //{ port: 18018, host: "149.28.220.241" },
-    //{ port: 18018, host: "149.28.204.235" },
-    //{ port: 18018, host: "139.162.130.195" },
-    socket,
+    { port: 18018, host: "149.28.220.241" },
+    { port: 18018, host: "149.28.204.235" },
+    { port: 18018, host: "139.162.130.195" },
+    //socket,
   ];
 
   // load up database with our initial peers
@@ -582,58 +686,7 @@ const loadNode = async () => {
     valueEncoding: "json",
   });
 
-  // const ObjectsToBeAddedtoDB = [
-  //   {
-  //     object: {
-  //       T: "00000002af000000000000000000000000000000000000000000000000000000",
-  //       created: 1624219079,
-  //       miner: "dionyziz",
-  //       nonce:
-  //         "0000000000000000000000000000000000000000000000000000002634878840",
-  //       note: "The Economist 2021-06-20: Crypto-miners are probably to blame for the graphics-chip shortage",
-  //       previd: null,
-  //       txids: [],
-  //       type: "block",
-  //     },
-  //   },
-  // ];
-
-  // Add genesis block to database of known objects
   await knownObjects.put(GenesisBlockID, GenesisBlock);
-
-  // for (const objecttobeadded of ObjectsToBeAddedtoDB) {
-  //   console.log("Lets see how the object to be added looks");
-  //   console.log(`${objecttobeadded.toString()}`);
-  //   const index = Buffer.from(sha256(canonicalize(objecttobeadded))).toString(
-  //     "hex"
-  //   );
-  //   await knownObjects.put(index, objecttobeadded);
-  //   console.log("Objects have been added");
-  //   console.log(`${index}`);
-  // }
-
-  // ObjectsToBeAddedtoDB.forEach(element => {
-  //   console.log("Lets see how the object to be added looks");
-  //   console.log(`${element}`);
-  //   const index = Buffer.from(sha256(canonicalize(element))).toString(
-  //     "hex"
-  //   );
-  //   await knownObjects.put(index, element);
-  //   console.log("Objects have been added");
-  //   console.log(`${index}`);
-
-  // });
-
-  // let knownObjectIDS = [];
-
-  // // iterate through most recent version of knownObjects database
-  // for await (const [index, object] of knownObjects.iterator()) {
-  //   knownObjectIDS.push(index);
-  // }
-
-  // // return list of known objectid's
-  // console.log("checking out object indices");
-  // console.log(`${knownObjectIDS}`);
 
   // create our node
   const node = new MyMaraNode(socket, bootstrappingPeers, knownObjects);
