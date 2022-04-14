@@ -339,13 +339,10 @@ class MyMaraNode {
                   };
                   client.write(canonicalize(getobject) + "\n");
                 }
-              } else if (
-                message.type === "transaction" ||
-                message.type === "block"
-              ) {
+              } else if (message.type === "object") {
                 console.log("Got a block or a transaction as a message");
                 let encoder = new TextEncoder();
-                let uint8array = encoder.encode(canonicalize(message));
+                let uint8array = encoder.encode(canonicalize(message.object));
                 const messageHash = Buffer.from(sha256(uint8array)).toString(
                   "hex"
                 );
@@ -357,7 +354,7 @@ class MyMaraNode {
                 } else {
                   const objectsindb = await this._knownObjects.iterator().all();
                   const index = objectsindb.length;
-                  await this._knownObjects.put(messageHash, message);
+                  await this._knownObjects.put(messageHash, message.object);
 
                   const IHaveObject = {
                     type: "ihaveobject",
@@ -377,8 +374,12 @@ class MyMaraNode {
                   const objectfromdb = await this._knownObjects.get(
                     message.objectid
                   );
+                  const objectToSend = {
+                    object: objectfromdb
+                    type: "object"
+                  }
                   console.log("Sent Object to client");
-                  client.write(canonicalize(objectfromdb) + "\n");
+                  client.write(canonicalize(objectToSend) + "\n");
                 }
               } else {
                 const error = {
@@ -538,14 +539,11 @@ class MyMaraNode {
                     };
                     socket.write(canonicalize(getobject) + "\n");
                   }
-                } else if (
-                  message.type === "transaction" ||
-                  message.type === "block"
-                  // have to add && handshake equals to true here
-                ) {
+                } else if (message.type === "object") 
+                {
                   console.log("Got a transaction or a block message");
                   let encoder = new TextEncoder();
-                  let uint8array = encoder.encode(canonicalize(message));
+                  let uint8array = encoder.encode(canonicalize(message.object));
                   const messageHash = Buffer.from(sha256(uint8array)).toString(
                     "hex"
                   );
@@ -557,8 +555,8 @@ class MyMaraNode {
                   if (objectids.includes(messageHash)) {
                     console.log("Object already present in database");
                   } else {
-                    if (this.validation(this._knownObjects, message)) {
-                      await this._knownObjects.put(messageHash, message);
+                    if (this.validation(this._knownObjects, message.object)) {
+                      await this._knownObjects.put(messageHash, message.object);
 
                       const IHaveObject = {
                         type: "ihaveobject",
@@ -583,8 +581,12 @@ class MyMaraNode {
                     const objectfromdb = await this._knownObjects.get(
                       message.objectid
                     );
+                    const objectToSend = {
+                      object: objectfromdb
+                      type: "object"
+                    }
                     console.log("Sent Object to client");
-                    socket.write(canonicalize(objectfromdb) + "\n");
+                    socket.write(canonicalize(objectToSend) + "\n");
                   }
                 } else {
                   const error = {
