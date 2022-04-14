@@ -375,9 +375,9 @@ class MyMaraNode {
                     message.objectid
                   );
                   const objectToSend = {
-                    object: objectfromdb
-                    type: "object"
-                  }
+                    object: objectfromdb,
+                    type: "object",
+                  };
                   console.log("Sent Object to client");
                   client.write(canonicalize(objectToSend) + "\n");
                 }
@@ -539,8 +539,7 @@ class MyMaraNode {
                     };
                     socket.write(canonicalize(getobject) + "\n");
                   }
-                } else if (message.type === "object") 
-                {
+                } else if (message.type === "object") {
                   console.log("Got a transaction or a block message");
                   let encoder = new TextEncoder();
                   let uint8array = encoder.encode(canonicalize(message.object));
@@ -582,9 +581,9 @@ class MyMaraNode {
                       message.objectid
                     );
                     const objectToSend = {
-                      object: objectfromdb
-                      type: "object"
-                    }
+                      object: objectfromdb,
+                      type: "object",
+                    };
                     console.log("Sent Object to client");
                     socket.write(canonicalize(objectToSend) + "\n");
                   }
