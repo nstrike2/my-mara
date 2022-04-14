@@ -1,3 +1,5 @@
+import { validation } from "./transactions.js";
+
 // Include Nodejs' net module.
 const Net = require("net");
 // Use JSON Canonicalize package

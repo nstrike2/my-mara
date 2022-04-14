@@ -5,7 +5,7 @@ class Transaction {
   }
 }
 
-async function validation(knownObjects, transaction) {
+export async function validation(knownObjects, transaction) {
   const inputs = transaction.object.inputs;
   const outputs = transaction.object.outputs;
   let totalInputValue = 0;
@@ -108,9 +108,10 @@ async function getValueForInput(knownObjects, txid, index) {
   const transaction = await knownObjects.get(txid);
   // get output from tx;
   const outputs = transaction.outputs;
+
   // iterate through the the tx output to find the op that matches with the index
   // get it's value and return
-  const value = "500";
+  const value = outputs[index].value;
 
   return value;
 }
