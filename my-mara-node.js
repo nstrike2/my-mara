@@ -550,7 +550,9 @@ class MyMaraNode {
                   if (objectids.includes(messageHash)) {
                     console.log("Object already present in database");
                   } else {
-                    if (this.validation(this._knownObjects, message.object)) {
+                    if (
+                      await this.validation(this._knownObjects, message.object)
+                    ) {
                       await this._knownObjects.put(messageHash, message.object);
 
                       const IHaveObject = {
@@ -560,7 +562,11 @@ class MyMaraNode {
 
                       socket.write(canonicalize(IHaveObject) + "\n");
                     } else {
-                      console.log("message invalid");
+                      const error = {
+                        type: "error",
+                        error: "Message is not valid object",
+                      };
+                      socket.write(canonicalize(error) + "\n");
                     }
                   }
                 } else if (message.type === "getobject" && handshake === true) {
