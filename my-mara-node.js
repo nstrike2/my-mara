@@ -101,7 +101,7 @@ class MyMaraNode {
 
     this.getValueForInput = function (RetrievedObject, index) {
       const outputs = RetrievedObject.outputs;
-      const value = outputs[index - 1].value;
+      const value = outputs[index].value;
 
       return value;
     };
@@ -122,7 +122,10 @@ class MyMaraNode {
     for (var ip = 0; ip < inputs.length; ip++) {
       const txid = inputs[ip].outpoint.txid;
       const signature = inputs[ip].sig;
-      const index = parseInt(inputs[ip].outpoint.txid, 10);
+      const index = inputs[ip].outpoint.index;
+      // parseInt((inputs[ip].outpoint.index).toString(), 10);
+      console.log("IND: " + index);
+      if(index < 0) return false;
       var publicKey = null;
       var RetrievedObject = null;
       var RetrievedObjectOutputs = null;
@@ -140,16 +143,16 @@ class MyMaraNode {
         RetrievedObject = await knownObjects.get(txid);
         RetrievedObjectOutputs = RetrievedObject.outputs;
 
-        publicKey = RetrievedObjectOutputs[index - 1].pubkey;
+        publicKey = RetrievedObjectOutputs[index].pubkey;
       } else {
         console.log("We do not have that object");
         const publicKey = null;
         return false;
       }
 
-      if (!this.validateSignature(message, signature, publicKey)) return false;
+      if (!await this.validateSignature(message, signature, publicKey)) return false;
       console.log("Sig verified");
-      if (!this.checkIndex(RetrievedObject, txid, index)) return false;
+      if (!await this.checkIndex(RetrievedObject, txid, index)) return false;
       console.log("Ind verified");
       totalInputValue =
         totalInputValue + this.getValueForInput(RetrievedObject, index);
@@ -519,8 +522,7 @@ class MyMaraNode {
                     await this._bootstrappingPeers.put(index, socket);
                   }
                 } else if (
-                  message.type === "ihaveobject" &&
-                  handshake === true
+                  message.type === "ihaveobject"
                 ) {
                   const objectids = await this.fetchObjectIDs(
                     this._knownObjects
@@ -569,7 +571,7 @@ class MyMaraNode {
                       socket.write(canonicalize(error) + "\n");
                     }
                   }
-                } else if (message.type === "getobject" && handshake === true) {
+                } else if (message.type === "getobject") {
                   //check if objectid is in database
                   console.log("Recieved getobject message from client");
 
