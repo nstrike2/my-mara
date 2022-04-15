@@ -9,6 +9,7 @@ const semver = require("semver");
 const { Level } = require("level");
 // Using fast-sha256 to hash the objects
 const sha256 = require("fast-sha256");
+const ed25519 = require("ed25519");
 
 // A class built to ensure we ingest messages to our buffer in full, as opposed to in incomplete chunks
 class MessageBuffer {
@@ -64,120 +65,115 @@ class MyMaraNode {
   }
 
   async validation(knownObjects, transaction) {
-    const inputs = transaction.object.inputs;
-    const outputs = transaction.object.outputs;
+    this.validateSignature = async function (message, signature, publicKey) {
+      if (
+        await ed25519.Verify(
+          Buffer.from(canonicalize(message), "utf8"),
+          Buffer.from(signature, "hex"),
+          Buffer.from(publicKey, "hex")
+        )
+      ) {
+        return true;
+      }
+      console.log("Invalid Signature");
+      return false;
+    };
+
+    this.checkIndex = async function (RetrievedObject, txid, index) {
+      // fetch the txid - check the number of outputs it has
+
+      const noOfOutputs = RetrievedObject.outputs.length;
+      if (index <= noOfOutputs) {
+        return true;
+      } else {
+        console.log("Too less outputs... ");
+        return false;
+      }
+    };
+
+    this.validatePubKey = function (pubkey) {
+      if (!pubkey.length == 64) {
+        console.log("Wrong pubkey size");
+        return false;
+      }
+      return true;
+    };
+
+    this.getValueForInput = function (RetrievedObject, index) {
+      const outputs = RetrievedObject.outputs;
+      const value = outputs[index - 1].value;
+
+      return value;
+    };
+
+    var inputs = null;
+    try {
+      inputs = transaction.inputs;
+    } catch (e) {
+      // need to add more checks
+      return true;
+    }
+    if (inputs == null) return true;
+    const outputs = transaction.outputs;
+    const objectids = await this.fetchObjectIDs(this._knownObjects);
     let totalInputValue = 0;
     let totalOutputValue = 0;
-    console.log(inputs);
+
     for (var ip = 0; ip < inputs.length; ip++) {
+      const txid = inputs[ip].outpoint.txid;
+      const signature = inputs[ip].sig;
+      const index = parseInt(inputs[ip].outpoint.txid, 10);
+      var publicKey = null;
+      var RetrievedObject = null;
+      var RetrievedObjectOutputs = null;
+
       const message = {
         type: "transaction",
-        inputs: {
-          outpoint: inputs[ip].outpoint,
+        inputs: inputs.map((input) => ({
+          outpoint: input.outpoint,
           sig: null,
-        },
+        })),
         outputs: outputs,
       };
 
-      const txid = inputs[ip].outpoint.txid;
-      const signature = inputs[ip].sig;
-      const index = inputs[ip].outpoint.txid;
+      if (objectids.includes(txid)) {
+        RetrievedObject = await knownObjects.get(txid);
+        RetrievedObjectOutputs = RetrievedObject.outputs;
 
-      try {
-        if (await knownObjects.exists(txid)) {
-          const RetrievedObject = await knownObjects.get(txid);
-          const publicKey = RetrievedObject.outputs[index].pubkey;
-        } else {
-          console.log("We do not have that object");
-          const publicKey = null;
-        }
-
-        // look up the levels db and find the txid - it's outputs - get the pubkey.
-        // look up the levels db and find the txid - it's outputs - get the pubkey.
-
-        if (!validateSignature(message, signature, publicKey)) return false;
-        if (!doesTxExist(txid)) return false;
-        if (!checkIndex(txid, index)) return false;
-        totalInputValue =
-          totalInputValue +
-          getValueForInput(inputs[ip].outpoint.txid, inputs[ip].outpoint.index);
-      } catch (e) {
-        console.log(e);
+        publicKey = RetrievedObjectOutputs[index - 1].pubkey;
+      } else {
+        console.log("We do not have that object");
+        const publicKey = null;
+        return false;
       }
+
+      if (!this.validateSignature(message, signature, publicKey)) return false;
+      console.log("Sig verified");
+      if (!this.checkIndex(RetrievedObject, txid, index)) return false;
+      console.log("Ind verified");
+      totalInputValue =
+        totalInputValue + this.getValueForInput(RetrievedObject, index);
     }
 
-    for (var op = 0; op < transaction.outputs.length; op++) {
+    for (var op = 0; op < outputs.length; op++) {
       var value = outputs[op].value;
       var pubkey = outputs[op].pubkey;
 
-      if (!validatePubKey(pubkey)) return false;
+      if (!this.validatePubKey(pubkey)) return false;
+      console.log("Pub Key verified");
       if (value < 0) return false;
+      console.log("Value verified");
 
       totalOutputValue = totalOutputValue + value;
     }
 
-    if (totalOutputValue > totalInputValue) return false;
-
-    return true;
-  }
-
-  validateSignature(message, signature, publicKey) {
-    if (
-      ed25519.Verify(
-        Buffer.from(canonicalize(message), "utf8"),
-        Buffer.from(signature, "hex"),
-        Buffer.from(publicKey, "hex")
-      )
-    ) {
-      return true;
-    }
-
-    return false;
-  }
-
-  async doesTxExist(knownObjects, txid) {
-    // check if this txid exists in the db
-    try {
-      if (await knownObjects.exists(txid)) {
-        return true;
-      }
-    } catch (e) {
+    if (totalOutputValue > totalInputValue) {
+      console.log("Law of conservation of $ aint workin...");
       return false;
     }
-    // will return true if there is tx
-    // if no tx then it would return false
-  }
 
-  async checkIndex(knownObjects, txid, index) {
-    // fetch the txid - check the number of outputs it has
-    const RetrievedObject = await knownObjects.gets(txid);
-
-    const noOfOutputs = RetrievedObject.outputs.length;
-    if (index <= noOfOutputs) {
-      return true;
-    } else {
-      console.log("Too less outputs... ");
-      return false;
-    }
-  }
-
-  validatePubKey(pubkey) {
-    if (!pubkey.length == 64) return false;
+    console.log("VERIFIED!");
     return true;
-  }
-
-  async getValueForInput(knownObjects, txid, index) {
-    // find the txid
-
-    const transaction = await knownObjects.get(txid);
-    // get output from tx;
-    const outputs = transaction.outputs;
-
-    // iterate through the the tx output to find the op that matches with the index
-    // get it's value and return
-    const value = outputs[index].value;
-
-    return value;
   }
 
   // fetch most recent version of bootstrapping peers database as a list
@@ -346,7 +342,7 @@ class MyMaraNode {
                 const messageHash = Buffer.from(sha256(uint8array)).toString(
                   "hex"
                 );
-
+                console.log("MSG HASH: " + messageHash);
                 const objectids = await this.fetchObjectIDs(this._knownObjects);
 
                 if (objectids.includes(messageHash)) {
@@ -664,16 +660,16 @@ const loadNode = async () => {
     valueEncoding: "json",
   });
 
-  const socket = { port: "18018", host: "104.207.149.243" };
+  const socket = { port: "18018", host: "localhost" };
 
   //to use for debugging
   //const socket = { port: "18018", host: "localhost" };
 
   // put initial peers from protocol into our database
   const initialPeers = [
-    { port: 18018, host: "149.28.220.241" },
-    { port: 18018, host: "149.28.204.235" },
-    { port: 18018, host: "139.162.130.195" },
+    // { port: 18018, host: "149.28.220.241" },
+    // { port: 18018, host: "149.28.204.235" },
+    // { port: 18018, host: "139.162.130.195" },
     //socket,
   ];
 
@@ -696,25 +692,25 @@ const loadNode = async () => {
   node.server();
 
   // connect to each of our node's trusted sockets from database
-  for await (const [index, socket] of bootstrappingPeers.iterator()) {
-    if (socket !== "" && socket !== null && typeof socket !== "undefined") {
-      const port = String(socket.port);
-      const host = String(socket.host);
-      if (
-        port !== "" &&
-        !port.toLowerCase().includes("null") &&
-        !port.toLowerCase().includes("undefined")
-      ) {
-        if (
-          host !== "" &&
-          !host.toLowerCase().includes("null") &&
-          !host.toLowerCase().includes("undefined")
-        ) {
-          node.client(socket.port, socket.host);
-        }
-      }
-    }
-  }
+  // for await (const [index, socket] of bootstrappingPeers.iterator()) {
+  //   if (socket !== "" && socket !== null && typeof socket !== "undefined") {
+  //     const port = String(socket.port);
+  //     const host = String(socket.host);
+  //     if (
+  //       port !== "" &&
+  //       !port.toLowerCase().includes("null") &&
+  //       !port.toLowerCase().includes("undefined")
+  //     ) {
+  //       if (
+  //         host !== "" &&
+  //         !host.toLowerCase().includes("null") &&
+  //         !host.toLowerCase().includes("undefined")
+  //       ) {
+  //         node.client(socket.port, socket.host);
+  //       }
+  //     }
+  //   }
+  // }
 };
 
 // driver code
