@@ -101,7 +101,7 @@ class MyMaraNode {
 
     this.getValueForInput = function (RetrievedObject, index) {
       const outputs = RetrievedObject.outputs;
-      const value = outputs[index - 1].value;
+      const value = outputs[index].value;
 
       return value;
     };
@@ -122,7 +122,10 @@ class MyMaraNode {
     for (var ip = 0; ip < inputs.length; ip++) {
       const txid = inputs[ip].outpoint.txid;
       const signature = inputs[ip].sig;
-      const index = parseInt(inputs[ip].outpoint.txid, 10);
+      const index = inputs[ip].outpoint.index;
+      // parseInt((inputs[ip].outpoint.index).toString(), 10);
+      console.log("IND: " + index);
+      if (index < 0) return false;
       var publicKey = null;
       var RetrievedObject = null;
       var RetrievedObjectOutputs = null;
@@ -140,16 +143,17 @@ class MyMaraNode {
         RetrievedObject = await knownObjects.get(txid);
         RetrievedObjectOutputs = RetrievedObject.outputs;
 
-        publicKey = RetrievedObjectOutputs[index - 1].pubkey;
+        publicKey = RetrievedObjectOutputs[index].pubkey;
       } else {
         console.log("We do not have that object");
         const publicKey = null;
         return false;
       }
 
-      if (!this.validateSignature(message, signature, publicKey)) return false;
+      if (!(await this.validateSignature(message, signature, publicKey)))
+        return false;
       console.log("Sig verified");
-      if (!this.checkIndex(RetrievedObject, txid, index)) return false;
+      if (!(await this.checkIndex(RetrievedObject, txid, index))) return false;
       console.log("Ind verified");
       totalInputValue =
         totalInputValue + this.getValueForInput(RetrievedObject, index);
@@ -483,8 +487,7 @@ class MyMaraNode {
                 let message = JSON.parse(payload.toString());
                 if (
                   message.type === "hello" &&
-                  semver.satisfies(message.version, "0.8.x") &&
-                  handshake === false
+                  semver.satisfies(message.version, "0.8.x")
                 ) {
                   handshake = true;
                   console.log("Received hello message from client");
@@ -666,16 +669,16 @@ const loadNode = async () => {
     valueEncoding: "json",
   });
 
-  const socket = { port: "18018", host: "localhost" };
+  const socket = { port: "18018", host: "104.207.149.243" };
 
   //to use for debugging
   //const socket = { port: "18018", host: "localhost" };
 
   // put initial peers from protocol into our database
   const initialPeers = [
-    // { port: 18018, host: "149.28.220.241" },
-    // { port: 18018, host: "149.28.204.235" },
-    // { port: 18018, host: "139.162.130.195" },
+    { port: 18018, host: "149.28.220.241" },
+    { port: 18018, host: "149.28.204.235" },
+    { port: 18018, host: "139.162.130.195" },
     //socket,
   ];
 
@@ -698,25 +701,25 @@ const loadNode = async () => {
   node.server();
 
   // connect to each of our node's trusted sockets from database
-  // for await (const [index, socket] of bootstrappingPeers.iterator()) {
-  //   if (socket !== "" && socket !== null && typeof socket !== "undefined") {
-  //     const port = String(socket.port);
-  //     const host = String(socket.host);
-  //     if (
-  //       port !== "" &&
-  //       !port.toLowerCase().includes("null") &&
-  //       !port.toLowerCase().includes("undefined")
-  //     ) {
-  //       if (
-  //         host !== "" &&
-  //         !host.toLowerCase().includes("null") &&
-  //         !host.toLowerCase().includes("undefined")
-  //       ) {
-  //         node.client(socket.port, socket.host);
-  //       }
-  //     }
-  //   }
-  // }
+  for await (const [index, socket] of bootstrappingPeers.iterator()) {
+    if (socket !== "" && socket !== null && typeof socket !== "undefined") {
+      const port = String(socket.port);
+      const host = String(socket.host);
+      if (
+        port !== "" &&
+        !port.toLowerCase().includes("null") &&
+        !port.toLowerCase().includes("undefined")
+      ) {
+        if (
+          host !== "" &&
+          !host.toLowerCase().includes("null") &&
+          !host.toLowerCase().includes("undefined")
+        ) {
+          node.client(socket.port, socket.host);
+        }
+      }
+    }
+  }
 };
 
 // driver code
