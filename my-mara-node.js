@@ -1,3 +1,8 @@
+const { validation } = require("./validation.js");
+const { MessageBuffer } = require("./messagebuffer.js");
+const { responsetogetpeers } = require("./responsestodata.js");
+const { fetchObjectIDs, fetchPeersList } = require("./fetchfromdb.js");
+
 // Include Nodejs' net module.
 const Net = require("net");
 // Use JSON Canonicalize package
@@ -11,49 +16,6 @@ const { Level } = require("level");
 const sha256 = require("fast-sha256");
 const ed25519 = require("ed25519");
 
-// A class built to ensure we ingest messages to our buffer in full, as opposed to in incomplete chunks
-class MessageBuffer {
-  constructor(delimiter) {
-    this.delimiter = delimiter;
-    this.buffer = "";
-  }
-
-  isFinished() {
-    if (
-      this.buffer.length === 0 ||
-      this.buffer.indexOf(this.delimiter) === -1
-    ) {
-      return false;
-    }
-    return true;
-  }
-
-  push(data) {
-    this.buffer += data;
-  }
-
-  getMessage() {
-    const delimiterIndex = this.buffer.indexOf(this.delimiter);
-    if (delimiterIndex !== -1) {
-      const message = this.buffer.slice(0, delimiterIndex);
-      this.buffer = this.buffer.replace(message + this.delimiter, "");
-      return message;
-    }
-    return null;
-  }
-
-  handleData() {
-    /**
-     * Try to accumulate the buffer with messages
-     *
-     * If the server isnt sending delimiters for some reason
-     * then nothing will ever come back for these requests
-     */
-    const message = this.getMessage();
-    return message;
-  }
-}
-
 class MyMaraNode {
   // socket = { port: port, host: host };
   // this socket passed in, which is the socket our node will run on, is added to our bootstrapping peers
@@ -63,162 +25,6 @@ class MyMaraNode {
     this._bootstrappingPeers = bootstrappingPeers;
     this._knownObjects = knownObjects;
   }
-
-  async validation(knownObjects, transaction) {
-    this.validateSignature = async function (message, signature, publicKey) {
-      if (
-        await ed25519.Verify(
-          Buffer.from(canonicalize(message), "utf8"),
-          Buffer.from(signature, "hex"),
-          Buffer.from(publicKey, "hex")
-        )
-      ) {
-        return true;
-      }
-      console.log("Invalid Signature");
-      return false;
-    };
-
-    this.checkIndex = async function (RetrievedObject, txid, index) {
-      // fetch the txid - check the number of outputs it has
-
-      const noOfOutputs = RetrievedObject.outputs.length;
-      if (index <= noOfOutputs) {
-        return true;
-      } else {
-        console.log("Too less outputs... ");
-        return false;
-      }
-    };
-
-    this.validatePubKey = function (pubkey) {
-      if (!pubkey.length == 64) {
-        console.log("Wrong pubkey size");
-        return false;
-      }
-      return true;
-    };
-
-    this.getValueForInput = function (RetrievedObject, index) {
-      const outputs = RetrievedObject.outputs;
-      const value = outputs[index].value;
-
-      return value;
-    };
-
-    var inputs = null;
-    try {
-      inputs = transaction.inputs;
-    } catch (e) {
-      // need to add more checks
-      return true;
-    }
-    if (inputs == null) return true;
-    const outputs = transaction.outputs;
-    const objectids = await this.fetchObjectIDs(this._knownObjects);
-    let totalInputValue = 0;
-    let totalOutputValue = 0;
-
-    for (var ip = 0; ip < inputs.length; ip++) {
-      const txid = inputs[ip].outpoint.txid;
-      const signature = inputs[ip].sig;
-      const index = inputs[ip].outpoint.index;
-      // parseInt((inputs[ip].outpoint.index).toString(), 10);
-      console.log("IND: " + index);
-      if (index < 0) return false;
-      var publicKey = null;
-      var RetrievedObject = null;
-      var RetrievedObjectOutputs = null;
-
-      const message = {
-        type: "transaction",
-        inputs: inputs.map((input) => ({
-          outpoint: input.outpoint,
-          sig: null,
-        })),
-        outputs: outputs,
-      };
-
-      if (objectids.includes(txid)) {
-        RetrievedObject = await knownObjects.get(txid);
-        RetrievedObjectOutputs = RetrievedObject.outputs;
-
-        publicKey = RetrievedObjectOutputs[index].pubkey;
-      } else {
-        console.log("We do not have that object");
-        const publicKey = null;
-        return false;
-      }
-
-      if (!(await this.validateSignature(message, signature, publicKey)))
-        return false;
-      console.log("Sig verified");
-      if (!(await this.checkIndex(RetrievedObject, txid, index))) return false;
-      console.log("Ind verified");
-      totalInputValue =
-        totalInputValue + this.getValueForInput(RetrievedObject, index);
-    }
-
-    for (var op = 0; op < outputs.length; op++) {
-      var value = outputs[op].value;
-      var pubkey = outputs[op].pubkey;
-
-      if (!this.validatePubKey(pubkey)) return false;
-      console.log("Pub Key verified");
-      if (value < 0) return false;
-      console.log("Value verified");
-
-      totalOutputValue = totalOutputValue + value;
-    }
-
-    if (totalOutputValue > totalInputValue) {
-      console.log("Law of conservation of $ aint workin...");
-      return false;
-    }
-
-    console.log("VERIFIED!");
-    return true;
-  }
-
-  // fetch most recent version of bootstrapping peers database as a list
-  async fetchPeersList(bootstrappingPeers) {
-    let peersList = [];
-
-    // iterate through most recent version of bootstrapping peers database
-    for await (const [index, socket] of bootstrappingPeers.iterator()) {
-      if (socket !== null && typeof socket !== "undefined") {
-        // add to a list
-        peersList.push((socket["host"] + ":" + socket["port"]).toString());
-      }
-    }
-
-    // return list
-    return peersList;
-  }
-
-  // fetch most recent version of objectsID's as a list
-  async fetchObjectIDs(knownObjects) {
-    let knownObjectIDS = [];
-
-    // iterate through most recent version of knownObjects database
-    for await (const [index, object] of knownObjects.iterator()) {
-      knownObjectIDS.push(index);
-    }
-
-    // return list of known objectid's
-    return knownObjectIDS;
-  }
-
-  // async fetchObject(knownObjects, objectid) {
-
-  //   // iterate through most recent version of knownObjects database
-  //   for await (const [index, object] of knownObjects.iterator()) {
-  //     knownObjectIDS.push((object['objectid']).toString())
-  //   }
-
-  //   // return list of known objectid's
-  //   return knownObjectIDS;
-  // }
 
   // run client
 
@@ -328,7 +134,7 @@ class MyMaraNode {
                   }
                 }
               } else if (message.type === "ihaveobject") {
-                const objectids = await this.fetchObjectIDs(this._knownObjects);
+                const objectids = await fetchObjectIDs(this._knownObjects);
 
                 if (objectids.includes(message.objectid)) {
                   console.log("Object already present in database");
@@ -347,7 +153,7 @@ class MyMaraNode {
                   "hex"
                 );
                 console.log("MSG HASH: " + messageHash);
-                const objectids = await this.fetchObjectIDs(this._knownObjects);
+                const objectids = await fetchObjectIDs(this._knownObjects);
 
                 if (objectids.includes(messageHash)) {
                   console.log("Object already present in database");
@@ -367,7 +173,7 @@ class MyMaraNode {
                 //check if objectid is in database
                 console.log("Recieved getobject message from client");
 
-                const objectids = await this.fetchObjectIDs(this._knownObjects);
+                const objectids = await fetchObjectIDs(this._knownObjects);
 
                 if (objectids.includes(message.objectid)) {
                   //const objectfromdb = await this.fetchObject(this._knownObjects, message.objectid)
@@ -492,22 +298,7 @@ class MyMaraNode {
                   handshake = true;
                   console.log("Received hello message from client");
                 } else if (message.type === "getpeers" && handshake === true) {
-                  console.log("Received getpeers message from client");
-
-                  // fetch peers
-                  const peersList = await this.fetchPeersList(
-                    this._bootstrappingPeers
-                  );
-
-                  const peers = {
-                    type: "peers",
-                    peers: peersList,
-                  };
-
-                  socket.write(canonicalize(peers) + "\n");
-                  console.log(
-                    "Sent these peers to client: " + JSON.stringify(peers)
-                  );
+                  responsetogetpeers(socket, this._bootstrappingPeers);
                 } else if (message.type === "peers" && handshake === true) {
                   console.log("Got peers message from client");
 
@@ -525,9 +316,7 @@ class MyMaraNode {
                   message.type === "ihaveobject" &&
                   handshake === true
                 ) {
-                  const objectids = await this.fetchObjectIDs(
-                    this._knownObjects
-                  );
+                  const objectids = await fetchObjectIDs(this._knownObjects);
 
                   if (objectids.includes(message.objectid)) {
                     console.log("Object already present in database");
@@ -546,16 +335,13 @@ class MyMaraNode {
                     "hex"
                   );
 
-                  const objectids = await this.fetchObjectIDs(
-                    this._knownObjects
-                  );
+                  const objectids = await fetchObjectIDs(this._knownObjects);
 
                   if (objectids.includes(messageHash)) {
                     console.log("Object already present in database");
                   } else {
-                    if (
-                      await this.validation(this._knownObjects, message.object)
-                    ) {
+                    console.log(`${typeof validation}`);
+                    if (await validation(this._knownObjects, message.object)) {
                       await this._knownObjects.put(messageHash, message.object);
 
                       const IHaveObject = {
@@ -576,9 +362,7 @@ class MyMaraNode {
                   //check if objectid is in database
                   console.log("Recieved getobject message from client");
 
-                  const objectids = await this.fetchObjectIDs(
-                    this._knownObjects
-                  );
+                  const objectids = await fetchObjectIDs(this._knownObjects);
 
                   if (objectids.includes(message.objectid)) {
                     //const objectfromdb = await this.fetchObject(this._knownObjects, message.objectid)
@@ -669,16 +453,16 @@ const loadNode = async () => {
     valueEncoding: "json",
   });
 
-  const socket = { port: "18018", host: "104.207.149.243" };
+  //const socket = { port: "18018", host: "104.207.149.243" };
 
   //to use for debugging
-  //const socket = { port: "18018", host: "localhost" };
+  const socket = { port: "18018", host: "localhost" };
 
   // put initial peers from protocol into our database
   const initialPeers = [
-    { port: 18018, host: "149.28.220.241" },
-    { port: 18018, host: "149.28.204.235" },
-    { port: 18018, host: "139.162.130.195" },
+    //{ port: 18018, host: "149.28.220.241" },
+    //{ port: 18018, host: "149.28.204.235" },
+    //{ port: 18018, host: "139.162.130.195" },
     //socket,
   ];
 
@@ -701,25 +485,25 @@ const loadNode = async () => {
   node.server();
 
   // connect to each of our node's trusted sockets from database
-  for await (const [index, socket] of bootstrappingPeers.iterator()) {
-    if (socket !== "" && socket !== null && typeof socket !== "undefined") {
-      const port = String(socket.port);
-      const host = String(socket.host);
-      if (
-        port !== "" &&
-        !port.toLowerCase().includes("null") &&
-        !port.toLowerCase().includes("undefined")
-      ) {
-        if (
-          host !== "" &&
-          !host.toLowerCase().includes("null") &&
-          !host.toLowerCase().includes("undefined")
-        ) {
-          node.client(socket.port, socket.host);
-        }
-      }
-    }
-  }
+  // for await (const [index, socket] of bootstrappingPeers.iterator()) {
+  //   if (socket !== "" && socket !== null && typeof socket !== "undefined") {
+  //     const port = String(socket.port);
+  //     const host = String(socket.host);
+  //     if (
+  //       port !== "" &&
+  //       !port.toLowerCase().includes("null") &&
+  //       !port.toLowerCase().includes("undefined")
+  //     ) {
+  //       if (
+  //         host !== "" &&
+  //         !host.toLowerCase().includes("null") &&
+  //         !host.toLowerCase().includes("undefined")
+  //       ) {
+  //         node.client(socket.port, socket.host);
+  //       }
+  //     }
+  //   }
+  // }
 };
 
 // driver code
