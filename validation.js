@@ -1,7 +1,22 @@
+const {
+  fetchObjectIDs,
+  fetchPeersList,
+  // PrefillPeers,
+  // PrefillObjects,
+} = require("./fetchfromdb.js");
+
+// Include Nodejs' net module.
+const Net = require("net");
+// Use JSON Canonicalize package
+const canonicalize = require("canonicalize");
+//Using semver to check the node version
+const semver = require("semver");
+//Using Level to store the trusted peers and the objects and object ID's
+// Object ID is hash of the canonicalized object
+const { Level } = require("level");
+// Using fast-sha256 to hash the objects
 const sha256 = require("fast-sha256");
 const ed25519 = require("ed25519");
-const canonicalize = require("canonicalize");
-const { Level } = require("level");
 
 var validation = async (knownObjects, transaction) => {
   this.validateSignature = async function (message, signature, publicKey) {

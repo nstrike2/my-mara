@@ -1,3 +1,12 @@
+const { validation } = require("./validation.js");
+const {
+  fetchObjectIDs,
+  fetchPeersList,
+  // PrefillPeers,
+  // PrefillObjects,
+} = require("./fetchfromdb.js");
+
+// Include Nodejs' net module.
 const Net = require("net");
 // Use JSON Canonicalize package
 const canonicalize = require("canonicalize");
@@ -9,12 +18,26 @@ const { Level } = require("level");
 // Using fast-sha256 to hash the objects
 const sha256 = require("fast-sha256");
 const ed25519 = require("ed25519");
-const { fetchObjectIDs, fetchPeersList } = require("./fetchfromdb.js");
 
-var responsetogetpeers = async (socket, bootstrappingPeers) => {
-  console.log("Received getpeers message from client");
+const SendHelloMsg = (client) => {
+  const helloMsg = {
+    type: "hello",
+    version: "0.8.0",
+    agent: "Marabu-Core Client 0.8",
+  };
+  client.write(canonicalize(helloMsg) + "\n");
+  console.log("Sent hello message");
+};
 
-  // fetch peers
+const SendGetPeers = (client) => {
+  const getPeers = {
+    type: "getpeers",
+  };
+  client.write(canonicalize(getPeers) + "\n");
+  console.log("Sent get peers message");
+};
+
+const SendPeers = async (client, bootstrappingPeers) => {
   const peersList = await fetchPeersList(bootstrappingPeers);
 
   const peers = {
@@ -22,10 +45,98 @@ var responsetogetpeers = async (socket, bootstrappingPeers) => {
     peers: peersList,
   };
 
-  socket.write(canonicalize(peers) + "\n");
-  console.log("Sent these peers to client: " + JSON.stringify(peers));
+  client.write(canonicalize(peers) + "\n");
+  console.log("Sent these peers: " + JSON.stringify(peers));
+};
+
+const AddPeerstodb = async (message, bootstrappingPeers) => {
+  console.log("Got peers message");
+  for (let peer of message.peers) {
+    if (peer !== null && typeof peer !== "undefined") {
+      let [host, port] = peer.split(":");
+      if (
+        !host.toLowerCase().includes("null") &&
+        !host.toLowerCase().includes("undefined")
+      ) {
+        if (
+          !port.toLowerCase().includes("null") &&
+          !port.toLowerCase().includes("undefined")
+        ) {
+          const socket = { port: port, host: host };
+          const peers = await bootstrappingPeers.iterator().all();
+          const index = peers.length;
+          await bootstrappingPeers.put(index, socket);
+        }
+      }
+    }
+  }
+};
+
+const SendGetObject = async (client, knownObjects, message) => {
+  const objectids = await fetchObjectIDs(knownObjects);
+
+  if (objectids.includes(message.objectid)) {
+    console.log("Object already present in database");
+  } else {
+    const getobject = {
+      type: "getobject",
+      objectid: message.objectid,
+    };
+    client.write(canonicalize(getobject) + "\n");
+  }
+};
+
+const IHaveObject = async (client, knownObjects, message) => {
+  console.log("Got a block or a transaction as a message");
+  let encoder = new TextEncoder();
+  let uint8array = encoder.encode(canonicalize(message.object));
+  const messageHash = Buffer.from(sha256(uint8array)).toString("hex");
+  console.log("MSG HASH: " + messageHash);
+  const objectids = await fetchObjectIDs(knownObjects);
+
+  if (objectids.includes(messageHash)) {
+    console.log("Object already present in database");
+  } else {
+    if (await validation(knownObjects, message.object)) {
+      await knownObjects.put(messageHash, message.object);
+      const IHaveObject = {
+        type: "ihaveobject",
+        objectid: messageHash,
+      };
+      client.write(canonicalize(IHaveObject) + "\n");
+    } else {
+      const error = {
+        type: "error",
+        error: "Message is not valid object",
+      };
+      client.write(canonicalize(error) + "\n");
+    }
+  }
+};
+
+const SendObject = async (client, knownObjects, message) => {
+  //check if objectid is in database
+  console.log("Recieved getobject message");
+
+  const objectids = await fetchObjectIDs(knownObjects);
+  if (objectids.includes(message.objectid)) {
+    //const objectfromdb = await this.fetchObject(this._knownObjects, message.objectid)
+    const objectfromdb = await knownObjects.get(message.objectid);
+    const objectToSend = {
+      object: objectfromdb,
+      type: "object",
+    };
+    console.log("Sent object");
+    client.write(canonicalize(objectToSend) + "\n");
+  }
 };
 
 module.exports = {
-  responsetogetpeers: responsetogetpeers,
+  SendHelloMsg: SendHelloMsg,
+  SendGetPeers: SendGetPeers,
+  SendPeers: SendPeers,
+  AddPeerstodb: AddPeerstodb,
+  SendGetObject: SendGetObject,
+  IHaveObject: IHaveObject,
+  SendObject: SendObject,
 };
