@@ -1,4 +1,5 @@
 const { validation } = require("./validation.js");
+const { blockvalidation } = require("./blockvalidation.js");
 const {
   fetchObjectIDs,
   fetchPeersList,
@@ -97,19 +98,30 @@ const IHaveObject = async (client, knownObjects, message) => {
   if (objectids.includes(messageHash)) {
     console.log("Object already present in database");
   } else {
-    if (await validation(knownObjects, message.object)) {
-      await knownObjects.put(messageHash, message.object);
-      const IHaveObject = {
-        type: "ihaveobject",
-        objectid: messageHash,
-      };
-      client.write(canonicalize(IHaveObject) + "\n");
+    if (message.object.type === "transaction") {
+      // Validate transaction
+      if (await validation(knownObjects, message.object)) {
+        await knownObjects.put(messageHash, message.object);
+        const IHaveObject = {
+          type: "ihaveobject",
+          objectid: messageHash,
+        };
+        client.write(canonicalize(IHaveObject) + "\n");
+      } else {
+        const error = {
+          type: "error",
+          error: "Message is not valid object",
+        };
+        client.write(canonicalize(error) + "\n");
+      }
     } else {
-      const error = {
-        type: "error",
-        error: "Message is not valid object",
-      };
-      client.write(canonicalize(error) + "\n");
+      // Validate block
+      if (await blockvalidation(message.object, messageHash, objectids, client, knownObjects)) {
+        console.log("VALIDATED BLOCK !");
+      }
+      else{
+        console.log("ERRANEOUS BLOCK");
+      }
     }
   }
 };

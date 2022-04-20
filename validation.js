@@ -67,6 +67,7 @@ var validation = async (knownObjects, transaction) => {
     // need to add more checks
     return true;
   }
+  console.log("In validation");
   if (inputs == null) return true;
   const outputs = transaction.outputs;
   const objectids = await fetchObjectIDs(knownObjects);
