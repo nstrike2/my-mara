@@ -33,10 +33,11 @@ class MyMaraNode {
   // socket = { port: port, host: host };
   // this socket passed in, which is the socket our node will run on, is added to our bootstrapping peers
   // knownObjects = { objectid: Hash of object, object: either block or transaction}
-  constructor(socket, bootstrappingPeers, knownObjects) {
+  constructor(socket, bootstrappingPeers, knownObjects, UTXOset) {
     this._nodeSocket = socket;
     this._bootstrappingPeers = bootstrappingPeers;
     this._knownObjects = knownObjects;
+    this._UTXOset = UTXOset;
   }
 
   // run client
@@ -199,7 +200,12 @@ class MyMaraNode {
                 ) {
                   SendGetObject(socket, this._knownObjects, message);
                 } else if (message.type === "object") {
-                  IHaveObject(socket, this._knownObjects, message);
+                  IHaveObject(
+                    socket,
+                    this._knownObjects,
+                    message,
+                    this._UTXOset
+                  );
                 } else if (message.type === "getobject" && handshake === true) {
                   SendObject(socket, this._knownObjects, message);
                 } else {

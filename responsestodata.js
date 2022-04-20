@@ -87,7 +87,7 @@ const SendGetObject = async (client, knownObjects, message) => {
   }
 };
 
-const IHaveObject = async (client, knownObjects, message) => {
+const IHaveObject = async (client, knownObjects, message, UTXOset) => {
   console.log("Got a block or a transaction as a message");
   let encoder = new TextEncoder();
   let uint8array = encoder.encode(canonicalize(message.object));
@@ -117,10 +117,18 @@ const IHaveObject = async (client, knownObjects, message) => {
       }
     } else {
       // Validate block
-      if (await blockvalidation(message.object, messageHash, objectids, client, knownObjects)) {
+      if (
+        await blockvalidation(
+          message.object,
+          messageHash,
+          objectids,
+          client,
+          knownObjects,
+          UTXOset
+        )
+      ) {
         console.log("VALIDATED BLOCK !");
-      }
-      else{
+      } else {
         console.log("ERRANEOUS BLOCK");
       }
     }

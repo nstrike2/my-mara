@@ -44,6 +44,7 @@ var blockvalidation = async (
   objectids,
   client,
   knownObjects
+  UTXOset
 ) => {
   var type, txids, nonce, previd, created, T, miner, note;
   try {
@@ -138,6 +139,46 @@ var blockvalidation = async (
       console.log(e);
       client.end();
     }
+  };
+
+  // {
+  //     blockid: ID of previous block;
+  //      txn_outpoints = [
+  //          {txid: Hash of the transaction,
+  //         index: The index of the output of the transaction}
+  //     ]
+
+  // }
+
+  this.checkUTXO = async (block, UTXOset, blockID, knownObjects) => {
+    listofUTXO = await UTXOset.get(block.previd);
+    outpoints_to_remove_from_UTXO = [];
+    outpoints_to_add_to_UTXO = [];
+    list_of_txids = block.txids;
+    console.log(`These are the list of txids ${list_of_txids}`);
+    for (const txid of list_of_txids) {
+      let transaction = await knownObjects.get(txid);
+      for (const input of transaction.inputs) {
+        let outpoint = input.outpoint;
+        if (listofUTXO.includes(outpoint)) {
+          console.log("Transaction in UTXO");
+          outpoints_to_remove_from_UTXO.push(oupoint);
+        } else {
+          console.log("Transaction has invalid input");
+          return false;
+        }
+      }
+      if (await validation(knownObjects, transaction)) {
+        console.log("Transaction is valid YAY!!");
+        for (var op = 0; op < transaction.outputs.length; op++) {
+          outpoints_to_add_to_UTXO.push({ txid: txid, index: op });
+        }
+      } else {
+        return false;
+      }
+    }
+    UTXOset.put(blockID, outpoints_to_add_to_UTXO);
+    return true;
   };
 
   this.validateTx = async function (txids, knownObjects) {
