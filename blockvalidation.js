@@ -225,8 +225,7 @@ var blockvalidation = async (
           }
         }
       }
-    } catch (e) {
-    }
+    } catch (e) {}
     console.log(coinbaseTx);
     if (!this.validateCoinbase(coinbaseTx)) return false;
     if (!this.checkPoCCoinbase(block, coinbaseTx, knownObjects)) return false;
@@ -250,17 +249,17 @@ var blockvalidation = async (
     return false;
 
   var coinbaseTx = null;
-  try{
-  console.log("Pased checkIndex");
-  if (!this.checkTarget(T)) return false;
-  console.log("Pased checkTarget");
-  if (!this.checkPOW(T, blockID)) return false;
-  console.log("Pased checkPOW");
-  this.checkTxInDB(txids, objectids, client);
-  console.log("Pased checkTxInDB");
-  if (!this.checkCoinbaseTx(block, txids, knownObjects)) return false;
-  console.log("Pased checkCoinbaseTx");
-  }catch(e){}
+  try {
+    console.log("Pased checkIndex");
+    if (!this.checkTarget(T)) return false;
+    console.log("Pased checkTarget");
+    if (!this.checkPOW(T, blockID)) return false;
+    console.log("Pased checkPOW");
+    this.checkTxInDB(txids, objectids, client);
+    console.log("Pased checkTxInDB");
+    if (!this.checkCoinbaseTx(block, txids, knownObjects)) return false;
+    console.log("Pased checkCoinbaseTx");
+  } catch (e) {}
 
   return true;
 };
