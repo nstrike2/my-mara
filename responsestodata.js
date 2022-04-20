@@ -101,6 +101,7 @@ const IHaveObject = async (client, knownObjects, message) => {
     if (message.object.type === "transaction") {
       // Validate transaction
       if (await validation(knownObjects, message.object)) {
+        console.log("TX VALIDATED!");
         await knownObjects.put(messageHash, message.object);
         const IHaveObject = {
           type: "ihaveobject",

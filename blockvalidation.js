@@ -125,6 +125,7 @@ var blockvalidation = async (
             type: "getobject",
             objectid: txids[i],
           };
+          console.log("Getting obj !...");
           client.write(canonicalize(getobject) + "\n");
         }
       }
@@ -149,35 +150,8 @@ var blockvalidation = async (
     }
   };
 
-  this.checkCoinbaseTx = async function (block, txids, knownObjects) {
-    for (let i = 0; i <= txids.length; i++) {
-      var message = await knownObjects.get(txids[i]);
-      console.log(message);
-      console.log("message: " + message);
-      var transaction = message.object;
-      var inputs = transaction.inputs;
-      console.log("INPUTSSS: " + inputs);
-
-      var coinbaseTxId = null;
-      if (inputs == null) {
-        if (i == 0) {
-          coinbaseTxId = txids[0];
-          coinbaseTx = transaction;
-        }
-        if (i != 0) return false;
-      } else {
-        for (let i = 0; i < inputs.length; i++) {
-          if (inputs[i].outpoint.txid == coinbaseTxId) return false;
-        }
-      }
-    }
-    console.log(coinbaseTx);
-    if (!this.validateCoinbase(coinbaseTx)) return false;
-    // if (!this.checkPoCCoinbase(block, coinbaseTx, knownObjects)) return false;
-    return true;
-  };
-
   this.validateCoinbase = function (coinbaseTx) {
+    console.log("coinbaseTx: " + coinbaseTx);
     if (coinbaseTx.outputs.length > 1) return false;
     try {
       var hex32Byte = /[0-9A-Fa-f]{64}/g;
@@ -221,6 +195,44 @@ var blockvalidation = async (
     return totalInputValue - totalOutputValue;
   };
 
+  this.checkCoinbaseTx = async function (block, txids, knownObjects) {
+    try {
+      for (let i = 0; i <= txids.length; i++) {
+        var message = await knownObjects.get(txids[i]);
+        console.log(message);
+        console.log("message: " + message);
+        var transaction = message;
+
+        var inputs = null;
+        try {
+          inputs = transaction.outpoint.inputs;
+        } catch (e) {
+          console.log("Coinbase Tx...");
+        }
+        console.log("INPUTSSS: " + inputs);
+
+        var coinbaseTxId = null;
+        if (inputs == null) {
+          if (i == 0) {
+            coinbaseTxId = txids[0];
+            console.log("TX: " + transaction);
+            coinbaseTx = transaction;
+          }
+          if (i != 0) return false;
+        } else {
+          for (let i = 0; i < inputs.length; i++) {
+            if (inputs[i].outpoint.txid == coinbaseTxId) return false;
+          }
+        }
+      }
+    } catch (e) {
+    }
+    console.log(coinbaseTx);
+    if (!this.validateCoinbase(coinbaseTx)) return false;
+    if (!this.checkPoCCoinbase(block, coinbaseTx, knownObjects)) return false;
+    return true;
+  };
+
   // Testing
   if (
     !this.checkIndex(
@@ -237,7 +249,8 @@ var blockvalidation = async (
   )
     return false;
 
-  var coinbaseTx = null; 
+  var coinbaseTx = null;
+  try{
   console.log("Pased checkIndex");
   if (!this.checkTarget(T)) return false;
   console.log("Pased checkTarget");
@@ -247,8 +260,7 @@ var blockvalidation = async (
   console.log("Pased checkTxInDB");
   if (!this.checkCoinbaseTx(block, txids, knownObjects)) return false;
   console.log("Pased checkCoinbaseTx");
-//   if (!this.checkPoCCoinbase(block, coinbaseTx, knownObjects)) return false;
-  console.log("Pased checkPoCCoinbase");
+  }catch(e){}
 
   return true;
 };
@@ -256,5 +268,7 @@ var blockvalidation = async (
 module.exports = {
   blockvalidation: blockvalidation,
 };
+
+// {"type" :"object", "object": {"type": "transaction","height": 0,"outputs": [{"pubkey": "8dbcd2401c89c04d6e53c81c90aa0b551cc8fc47c0469217c8f5cfbae1e911f9","value": 50000000000}]}}
 
 // {"object": {"nonce": "c5ee71be4ca85b160d352923a84f86f44b7fc4fe60002214bc1236ceedc5c615", "T": "00000002af000000000000000000000000000000000000000000000000000000", "created": 1649827795114, "miner": "svatsan", "note": "First block. Yayy, I have 50 bu now!!", "previd": "00000000a420b7cefa2b7730243316921ed59ffe836e111ca3801f82a4f5360e", "txids": ["1bb37b637d07100cd26fc063dfd4c39a7931cc88dae3417871219715a5e374af"],"type": "block"}, "type":"object"}
