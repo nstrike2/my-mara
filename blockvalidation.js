@@ -300,6 +300,8 @@ var blockvalidation = async (
     console.log("Pased checkTxInDB");
     if (!this.checkCoinbaseTx(block, txids, knownObjects)) return false;
     console.log("Pased checkCoinbaseTx");
+    if (!this.checkUTXO(block, UTXOset, blockID, knownObjects)) return false;
+
   } catch (e) {}
 
   return true;

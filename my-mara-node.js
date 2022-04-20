@@ -274,6 +274,18 @@ const loadNode = async () => {
   });
 
   await knownObjects.put(genesishash, GenesisBlock);
+  const UTXOset = new Level("UTXOset", {
+    valueEncoding: "json",
+  });
+
+  const UTXOafterGenesis = [
+    {
+      txid: null,
+      index: null,
+    },
+  ];
+
+  await UTXOset.put(genesishash, UTXOafterGenesis);
   // create our node
   // Create a database for initial bootstrapping peers
   const bootstrappingPeers = new Level("bootstrappingPeers", {
@@ -293,7 +305,12 @@ const loadNode = async () => {
   for (const [index, socket] of initialPeers.entries()) {
     await bootstrappingPeers.put(index, localhost);
   }
-  const node = new MyMaraNode(socket, bootstrappingPeers, knownObjects);
+  const node = new MyMaraNode(
+    socket,
+    bootstrappingPeers,
+    knownObjects,
+    UTXOset
+  );
   // run server from our node
   node.server();
   //connect to each of our node's trusted sockets from database
