@@ -43,7 +43,7 @@ var blockvalidation = async (
   blockID,
   objectids,
   client,
-  knownObjects
+  knownObjects,
   UTXOset
 ) => {
   var type, txids, nonce, previd, created, T, miner, note;
@@ -301,7 +301,6 @@ var blockvalidation = async (
     if (!this.checkCoinbaseTx(block, txids, knownObjects)) return false;
     console.log("Pased checkCoinbaseTx");
     if (!this.checkUTXO(block, UTXOset, blockID, knownObjects)) return false;
-
   } catch (e) {}
 
   return true;

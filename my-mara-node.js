@@ -296,14 +296,14 @@ const loadNode = async () => {
   //const socket = { port: "18018", host: "localhost" };
   // put initial peers from protocol into our database
   const initialPeers = [
-    // { port: 18018, host: "149.28.220.241" },
-    // { port: 18018, host: "149.28.204.235" },
-    // { port: 18018, host: "139.162.130.195" },
+    { port: 18018, host: "149.28.220.241" },
+    { port: 18018, host: "149.28.204.235" },
+    { port: 18018, host: "139.162.130.195" },
     //socket,
   ];
   // load up database with our initial peers
   for (const [index, socket] of initialPeers.entries()) {
-    await bootstrappingPeers.put(index, localhost);
+    await bootstrappingPeers.put(index, socket);
   }
   const node = new MyMaraNode(
     socket,
@@ -314,25 +314,25 @@ const loadNode = async () => {
   // run server from our node
   node.server();
   //connect to each of our node's trusted sockets from database
-  // for await (const [index, socket] of bootstrappingPeers.iterator()) {
-  //   if (socket !== "" && socket !== null && typeof socket !== "undefined") {
-  //     const port = String(socket.port);
-  //     const host = String(socket.host);
-  //     if (
-  //       port !== "" &&
-  //       !port.toLowerCase().includes("null") &&
-  //       !port.toLowerCase().includes("undefined")
-  //     ) {
-  //       if (
-  //         host !== "" &&
-  //         !host.toLowerCase().includes("null") &&
-  //         !host.toLowerCase().includes("undefined")
-  //       ) {
-  //         node.client(socket.port, socket.host);
-  //       }
-  //     }
-  //   }
-  // }
+  for await (const [index, socket] of bootstrappingPeers.iterator()) {
+    if (socket !== "" && socket !== null && typeof socket !== "undefined") {
+      const port = String(socket.port);
+      const host = String(socket.host);
+      if (
+        port !== "" &&
+        !port.toLowerCase().includes("null") &&
+        !port.toLowerCase().includes("undefined")
+      ) {
+        if (
+          host !== "" &&
+          !host.toLowerCase().includes("null") &&
+          !host.toLowerCase().includes("undefined")
+        ) {
+          node.client(socket.port, socket.host);
+        }
+      }
+    }
+  }
 };
 
 // driver code
