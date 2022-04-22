@@ -321,7 +321,7 @@ const loadNode = async () => {
     { port: 18018, host: "149.28.220.241" },
     { port: 18018, host: "149.28.204.235" },
     { port: 18018, host: "139.162.130.195" },
-    //socket,
+    socket,
   ];
   // load up database with our initial peers
   for (const [index, socket] of initialPeers.entries()) {
