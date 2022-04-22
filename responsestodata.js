@@ -1,5 +1,12 @@
 const { validation } = require("./validation.js");
-const { blockvalidation } = require("./blockvalidation.js");
+const { coinbasecheck } = require("./CoinbaseValidation.js");
+const { checkUTXO } = require("./checkUTXO.js");
+
+const {
+  checkTargetandPOW,
+  alltxnsofblockcorrect,
+} = require("./checkTargetandPOW.js");
+const { getblocktxns } = require("./getblocktxns.js");
 const {
   fetchObjectIDs,
   fetchPeersList,
@@ -87,13 +94,19 @@ const SendGetObject = async (client, knownObjects, message) => {
   }
 };
 
-const IHaveObject = async (client, knownObjects, message, UTXOset) => {
+const IHaveObject = async (
+  client,
+  knownObjects,
+  message,
+  UTXOset,
+  blocksandtxids
+) => {
   console.log("Got a block or a transaction as a message");
   let encoder = new TextEncoder();
   let uint8array = encoder.encode(canonicalize(message.object));
   const messageHash = Buffer.from(sha256(uint8array)).toString("hex");
   console.log("MSG HASH: " + messageHash);
-  const objectids = await fetchObjectIDs(knownObjects);
+  let objectids = await fetchObjectIDs(knownObjects);
 
   if (objectids.includes(messageHash)) {
     console.log("Object already present in database");
@@ -108,29 +121,83 @@ const IHaveObject = async (client, knownObjects, message, UTXOset) => {
           objectid: messageHash,
         };
         client.write(canonicalize(IHaveObject) + "\n");
+        //check if block is complete
+        objectids = await fetchObjectIDs(knownObjects);
+        for await (const [hash, block] of blocksandtxids.iterator()) {
+          console.log("Testing");
+          console.log(`${block.txids}`);
+          console.log(`${hash}`);
+          if (
+            block.txids !== "" &&
+            block.txids !== null &&
+            typeof block.txids !== "undefined"
+          ) {
+            if (alltxnsofblockcorrect(block.txids, objectids)) {
+              await knownObjects.put(hash, block);
+              if (coinbasecheck(block, knownObjects)) {
+                if (
+                  checkUTXO(
+                    message.object,
+                    messageHash,
+                    block,
+                    hash,
+                    UTXOset,
+                    knownObjects
+                  )
+                ) {
+                  const IHaveObject = {
+                    type: "ihaveobject",
+                    objectid: hash,
+                  };
+                  client.write(canonicalize(IHaveObject) + "\n");
+                  console.log("UTXO works");
+                } else {
+                  const error = {
+                    type: "error",
+                    error: "Invalid UTXO",
+                  };
+                  await knownObjects.del(hash);
+                  client.write(canonicalize(error) + "\n");
+                }
+              } else {
+                const error = {
+                  type: "error",
+                  error: "Invalid coinbase",
+                };
+                await knownObjects.del(hash);
+                client.write(canonicalize(error) + "\n");
+              }
+
+              //check for coinbase transaction
+            }
+          }
+        }
       } else {
         const error = {
           type: "error",
-          error: "Message is not valid object",
+          error: "Failed to verify transaction",
         };
         client.write(canonicalize(error) + "\n");
       }
     } else {
-      // Validate block
-      if (
-        await blockvalidation(
+      //Validate block
+      if (checkTargetandPOW(message.object, messageHash, client)) {
+        await blocksandtxids.put(messageHash, message.object);
+        getblocktxns(
           message.object,
           messageHash,
           objectids,
           client,
-          knownObjects,
-          UTXOset
-        )
-      ) {
-        console.log("VALIDATED BLOCK !");
+          knownObjects
+        );
       } else {
-        console.log("ERRANEOUS BLOCK");
+        const error = {
+          type: "error",
+          error: "Incorrect Target or POW",
+        };
+        client.write(canonicalize(error) + "\n");
       }
+      //
     }
   }
 };

@@ -1,5 +1,6 @@
 const { validation } = require("./validation.js");
 const { MessageBuffer } = require("./messagebuffer.js");
+const { checkUTXO } = require("./checkUTXO.js");
 const {
   SendHelloMsg,
   SendGetPeers,
@@ -33,11 +34,18 @@ class MyMaraNode {
   // socket = { port: port, host: host };
   // this socket passed in, which is the socket our node will run on, is added to our bootstrapping peers
   // knownObjects = { objectid: Hash of object, object: either block or transaction}
-  constructor(socket, bootstrappingPeers, knownObjects, UTXOset) {
+  constructor(
+    socket,
+    bootstrappingPeers,
+    knownObjects,
+    UTXOset,
+    blocksandtxids
+  ) {
     this._nodeSocket = socket;
     this._bootstrappingPeers = bootstrappingPeers;
     this._knownObjects = knownObjects;
     this._UTXOset = UTXOset;
+    this._blocksandtxids = blocksandtxids;
   }
 
   // run client
@@ -92,7 +100,15 @@ class MyMaraNode {
               } else if (message.type === "ihaveobject") {
                 SendGetObject(client, this._knownObjects, message);
               } else if (message.type === "object") {
-                IHaveObject(client, this._knownObjects, message);
+                //if it is a block
+                //if it is a transaction
+                IHaveObject(
+                  client,
+                  this._knownObjects,
+                  message,
+                  this._UTXOset,
+                  this._blocksandtxids
+                );
               } else if (message.type === "getobject") {
                 SendObject(client, this._knownObjects, message);
               } else {
@@ -204,7 +220,8 @@ class MyMaraNode {
                     socket,
                     this._knownObjects,
                     message,
-                    this._UTXOset
+                    this._UTXOset,
+                    this._blocksandtxids
                   );
                 } else if (message.type === "getobject" && handshake === true) {
                   SendObject(socket, this._knownObjects, message);
@@ -273,6 +290,11 @@ const loadNode = async () => {
     valueEncoding: "json",
   });
 
+  //Create a database of blocks and txids
+  const blocksandtxids = new Level("blocksandtxids", {
+    valueEncoding: "json",
+  });
+
   await knownObjects.put(genesishash, GenesisBlock);
   const UTXOset = new Level("UTXOset", {
     valueEncoding: "json",
@@ -309,7 +331,8 @@ const loadNode = async () => {
     socket,
     bootstrappingPeers,
     knownObjects,
-    UTXOset
+    UTXOset,
+    blocksandtxids
   );
   // run server from our node
   node.server();
