@@ -1,6 +1,7 @@
 const { validation } = require("./validation.js");
 const { coinbasecheck } = require("./CoinbaseValidation.js");
 const { checkUTXO } = require("./checkUTXO.js");
+const { validateparentblock } = require("./checkchain.js");
 
 const {
   checkTargetandPOW,
@@ -99,7 +100,8 @@ const IHaveObject = async (
   knownObjects,
   message,
   UTXOset,
-  blocksandtxids
+  blocksandtxids,
+  temporary_blocks_db
 ) => {
   console.log("Got a block or a transaction as a message");
   let encoder = new TextEncoder();
@@ -110,95 +112,91 @@ const IHaveObject = async (
 
   if (objectids.includes(messageHash)) {
     console.log("Object already present in database");
-  } else {
-    if (message.object.type === "transaction") {
-      // Validate transaction
-      if (await validation(knownObjects, message.object)) {
-        console.log("TX VALIDATED!");
-        await knownObjects.put(messageHash, message.object);
-        const IHaveObject = {
-          type: "ihaveobject",
-          objectid: messageHash,
-        };
-        client.write(canonicalize(IHaveObject) + "\n");
-        //check if block is complete
-        objectids = await fetchObjectIDs(knownObjects);
-        for await (const [hash, block] of blocksandtxids.iterator()) {
-          console.log("Testing");
-          console.log(`${block.txids}`);
-          console.log(`${hash}`);
-          if (
-            block.txids !== "" &&
-            block.txids !== null &&
-            typeof block.txids !== "undefined"
-          ) {
-            if (alltxnsofblockcorrect(block.txids, objectids)) {
-              await knownObjects.put(hash, block);
-              if (coinbasecheck(block, knownObjects)) {
-                if (
-                  checkUTXO(
-                    message.object,
-                    messageHash,
-                    block,
-                    hash,
-                    UTXOset,
-                    knownObjects
-                  )
-                ) {
-                  const IHaveObject = {
-                    type: "ihaveobject",
-                    objectid: hash,
-                  };
-                  client.write(canonicalize(IHaveObject) + "\n");
-                  console.log("UTXO works");
-                } else {
-                  const error = {
-                    type: "error",
-                    error: "Invalid UTXO",
-                  };
-                  await knownObjects.del(hash);
-                  client.write(canonicalize(error) + "\n");
-                }
+  }
+
+  if (message.object.type === "transaction") {
+    // Validate transaction
+    if (await validation(knownObjects, message.object)) {
+      console.log("TX VALIDATED!");
+      await knownObjects.put(messageHash, message.object);
+      const IHaveObject = {
+        type: "ihaveobject",
+        objectid: messageHash,
+      };
+      client.write(canonicalize(IHaveObject) + "\n");
+      //check if block is complete
+      objectids = await fetchObjectIDs(knownObjects);
+      for await (const [hash, block] of blocksandtxids.iterator()) {
+        console.log("Testing");
+        console.log(`${block.txids}`);
+        console.log(`${hash}`);
+        if (
+          block.txids !== "" &&
+          block.txids !== null &&
+          typeof block.txids !== "undefined"
+        ) {
+          if (alltxnsofblockcorrect(block.txids, objectids)) {
+            await knownObjects.put(hash, block);
+            if (coinbasecheck(block, knownObjects)) {
+              if (
+                checkUTXO(
+                  message.object,
+                  messageHash,
+                  block,
+                  hash,
+                  UTXOset,
+                  knownObjects
+                )
+              ) {
+                const IHaveObject = {
+                  type: "ihaveobject",
+                  objectid: hash,
+                };
+                client.write(canonicalize(IHaveObject) + "\n");
+                console.log("UTXO works");
               } else {
                 const error = {
                   type: "error",
-                  error: "Invalid coinbase",
+                  error: "Invalid UTXO",
                 };
                 await knownObjects.del(hash);
                 client.write(canonicalize(error) + "\n");
               }
-
-              //check for coinbase transaction
+            } else {
+              const error = {
+                type: "error",
+                error: "Invalid coinbase",
+              };
+              await knownObjects.del(hash);
+              client.write(canonicalize(error) + "\n");
             }
+
+            //check for coinbase transaction
           }
         }
-      } else {
-        const error = {
-          type: "error",
-          error: "Failed to verify transaction",
-        };
-        client.write(canonicalize(error) + "\n");
       }
     } else {
-      //Validate block
-      if (checkTargetandPOW(message.object, messageHash, client)) {
-        await blocksandtxids.put(messageHash, message.object);
-        getblocktxns(
-          message.object,
-          messageHash,
-          objectids,
-          client,
-          knownObjects
-        );
-      } else {
-        const error = {
-          type: "error",
-          error: "Incorrect Target or POW",
-        };
-        client.write(canonicalize(error) + "\n");
-      }
-      //
+      const error = {
+        type: "error",
+        error: "Failed to verify transaction",
+      };
+      client.write(canonicalize(error) + "\n");
     }
+  }
+
+  if (message.object.type === "block") {
+    const temporary_blocks = await temporary_blocks_db.iterator().all();
+    const index = temporary_blocks.length;
+    await temporary_blocks_db.put(messageHash, message.object);
+    validateparentblock(
+      message.object,
+      messageHash,
+      UTXOset,
+      knownObjects,
+      client,
+      temporary_blocks_db,
+      blocksandtxids
+    );
   }
 };
 

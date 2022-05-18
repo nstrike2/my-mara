@@ -27,6 +27,11 @@ const checkTargetandPOW = (block, blockID, client) => {
     console.log("Checking that block has everything: works");
   } catch (e) {
     console.log("Malformed block...");
+    const error = {
+      type: "error",
+      error: "Malformed block",
+    };
+    client.write(canonicalize(error) + "\n");
   }
   // Functions
 

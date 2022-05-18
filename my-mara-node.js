@@ -39,13 +39,15 @@ class MyMaraNode {
     bootstrappingPeers,
     knownObjects,
     UTXOset,
-    blocksandtxids
+    blocksandtxids,
+    temporary_blocks_db
   ) {
     this._nodeSocket = socket;
     this._bootstrappingPeers = bootstrappingPeers;
     this._knownObjects = knownObjects;
     this._UTXOset = UTXOset;
     this._blocksandtxids = blocksandtxids;
+    this._temporary_blocks_db = temporary_blocks_db;
   }
 
   // run client
@@ -107,7 +109,8 @@ class MyMaraNode {
                   this._knownObjects,
                   message,
                   this._UTXOset,
-                  this._blocksandtxids
+                  this._blocksandtxids,
+                  this._temporary_blocks_db
                 );
               } else if (message.type === "getobject") {
                 SendObject(client, this._knownObjects, message);
@@ -221,7 +224,8 @@ class MyMaraNode {
                     this._knownObjects,
                     message,
                     this._UTXOset,
-                    this._blocksandtxids
+                    this._blocksandtxids,
+                    this._temporary_blocks_db
                   );
                 } else if (message.type === "getobject" && handshake === true) {
                   SendObject(socket, this._knownObjects, message);
@@ -295,6 +299,12 @@ const loadNode = async () => {
     valueEncoding: "json",
   });
 
+  const temporary_blocks_db = new Level("temporary_blocks_db", {
+    valueEncoding: "json",
+  });
+
+  await temporary_blocks_db.put(0, GenesisBlock);
+
   await knownObjects.put(genesishash, GenesisBlock);
   const UTXOset = new Level("UTXOset", {
     valueEncoding: "json",
@@ -313,15 +323,15 @@ const loadNode = async () => {
   const bootstrappingPeers = new Level("bootstrappingPeers", {
     valueEncoding: "json",
   });
-  const socket = { port: "18018", host: "104.207.149.243" };
+  const socket = { port: "18018", host: "localhost" };
   //to use for debugging
   //const socket = { port: "18018", host: "localhost" };
   // put initial peers from protocol into our database
   const initialPeers = [
-    { port: 18018, host: "149.28.220.241" },
-    { port: 18018, host: "149.28.204.235" },
-    { port: 18018, host: "139.162.130.195" },
-    socket,
+    //{ port: 18018, host: "149.28.220.241" },
+    //{ port: 18018, host: "149.28.204.235" },
+    //{ port: 18018, host: "139.162.130.195" },
+    //socket,
   ];
   // load up database with our initial peers
   for (const [index, socket] of initialPeers.entries()) {
@@ -332,7 +342,8 @@ const loadNode = async () => {
     bootstrappingPeers,
     knownObjects,
     UTXOset,
-    blocksandtxids
+    blocksandtxids,
+    temporary_blocks_db
   );
   // run server from our node
   node.server();
