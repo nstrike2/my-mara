@@ -1,5 +1,5 @@
 # my-mara
-Our very own Marabu blockchain!!
+Our very own node client implementation for a didactic Marabu blockchain!!
 
 To start our node, run...
 ```sh
