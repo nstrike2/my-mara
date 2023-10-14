@@ -4,16 +4,108 @@ const Net = require("net");
 const canonicalize = require("canonicalize");
 //Using semver to check the node version
 const semver = require("semver");
-//Using Level to store the trusted peers
+//Using Level to store the trusted peers and the objects and object ID's
+// Object ID is hash of the canonicalized object
 const { Level } = require("level");
+// Using fast-sha256 to hash the objects
+const sha256 = require("fast-sha256");
+// Using nacl to convert Uint8 arrays to strings
+//const nacl = require("stablelib/utf8");
+
+// A class built to ensure we ingest messages to our buffer in full, as opposed to in incomplete chunks
+class MessageBuffer {
+  constructor(delimiter) {
+    this.delimiter = delimiter;
+    this.buffer = "";
+  }
+
+  isFinished() {
+    if (
+      this.buffer.length === 0 ||
+      this.buffer.indexOf(this.delimiter) === -1
+    ) {
+      return false;
+    }
+    return true;
+  }
+
+  push(data) {
+    this.buffer += data;
+  }
+
+  getMessage() {
+    const delimiterIndex = this.buffer.indexOf(this.delimiter);
+    if (delimiterIndex !== -1) {
+      const message = this.buffer.slice(0, delimiterIndex);
+      this.buffer = this.buffer.replace(message + this.delimiter, "");
+      return message;
+    }
+    return null;
+  }
+
+  handleData() {
+    /**
+     * Try to accumulate the buffer with messages
+     *
+     * If the server isnt sending delimiters for some reason
+     * then nothing will ever come back for these requests
+     */
+    const message = this.getMessage();
+    return message;
+  }
+}
 
 class MyMaraNode {
   // socket = { port: port, host: host };
   // this socket passed in, which is the socket our node will run on, is added to our bootstrapping peers
-  constructor(socket) {
+  // knownObjects = { objectid: Hash of object, object: either block or transaction}
+  constructor(socket, bootstrappingPeers, knownObjects) {
     this._nodeSocket = socket;
+    this._bootstrappingPeers = bootstrappingPeers;
+    this._knownObjects = knownObjects;
   }
 
+  // fetch most recent version of bootstrapping peers database as a list
+  async fetchPeersList(bootstrappingPeers) {
+    let peersList = [];
+
+    // iterate through most recent version of bootstrapping peers database
+    for await (const [index, socket] of bootstrappingPeers.iterator()) {
+      if (socket !== null && typeof socket !== "undefined") {
+        // add to a list
+        peersList.push((socket["host"] + ":" + socket["port"]).toString());
+      }
+    }
+
+    // return list
+    return peersList;
+  }
+
+  // fetch most recent version of objectsID's as a list
+  async fetchObjectIDs(knownObjects) {
+    let knownObjectIDS = [];
+
+    // iterate through most recent version of knownObjects database
+    for await (const [index, object] of knownObjects.iterator()) {
+      knownObjectIDS.push(object["objectid"]);
+    }
+
+    // return list of known objectid's
+    return knownObjectIDS;
+  }
+
+  // async fetchObject(knownObjects, objectid) {
+
+  //   // iterate through most recent version of knownObjects database
+  //   for await (const [index, object] of knownObjects.iterator()) {
+  //     knownObjectIDS.push((object['objectid']).toString())
+  //   }
+
+  //   // return list of known objectid's
+  //   return knownObjectIDS;
+  // }
+
+  // run client
   client(serverPort, serverHost) {
     // The port number and hostname of the server we're trying to connect to.
     const port = serverPort;
@@ -32,7 +124,7 @@ class MyMaraNode {
         agent: "Marabu-Core Client 0.8",
       };
 
-      const GetPeers = {
+      const getPeers = {
         type: "getpeers",
       };
 
@@ -41,22 +133,173 @@ class MyMaraNode {
 
       // send hello message
       client.write(canonicalize(helloMsg) + "\n");
-      console.log("Sent Hello Msg");
+      console.log("Client sent hello message");
 
       // send getPeers message
-      client.write(canonicalize(GetPeers) + "\n");
-      console.log("Sent GetPeers Msg");
+      client.write(canonicalize(getPeers) + "\n");
+      console.log("Client sent getpeers message");
     });
 
     // The client can also receive data from the server by reading from its socket
 
-    const peers = {
-      type: "peers",
-      peers: "dionyziz.com:18018",
-    };
+    // Creating a buffer object ensuring we ingest messages to our buffer in full, as opposed to in incomplete chunks
+    let received = new MessageBuffer("\n");
 
-    client.on("data", (chunk) => {
-      console.log(`Data received from node at ${host}: ${chunk.toString()}.`);
+    client.on("data", async (chunk) => {
+      received.push(chunk);
+
+      // once our chunks make up the entire, complete message in our buffer and process it
+      while (received.isFinished()) {
+        const message = received.handleData();
+
+        let array_chunk = message.toString().split("\n");
+
+        console.log(`Received data from ${host} server: ${array_chunk}.`);
+
+        for (let payload of array_chunk) {
+          try {
+            // check if message is valid JSON object
+            if (typeof JSON.parse(payload) === "object") {
+              // check if type hello and if version of type 0.8.x
+              // if not, close the connection immediately!!
+              let message = JSON.parse(payload.toString());
+
+              if (
+                message.type === "hello" &&
+                semver.satisfies(message.version, "0.8.x")
+              ) {
+                console.log("Received hello message from server");
+              } else if (message.type === "getpeers") {
+                console.log("Received getpeers message from server");
+
+                // fetch peers
+                const peersList = await this.fetchPeersList(
+                  this._bootstrappingPeers
+                );
+
+                const peers = {
+                  type: "peers",
+                  peers: peersList,
+                };
+
+                client.write(canonicalize(peers) + "\n");
+                console.log(
+                  "Sent these peers to server: " + JSON.stringify(peers)
+                );
+              } else if (message.type === "peers") {
+                console.log("Got peers message from server");
+
+                // add peers received to our database
+                for (let peer of message.peers) {
+                  if (peer !== null && typeof peer !== "undefined") {
+                    let [host, port] = peer.split(":");
+                    if (
+                      !host.toLowerCase().includes("null") &&
+                      !host.toLowerCase().includes("undefined")
+                    ) {
+                      if (
+                        !port.toLowerCase().includes("null") &&
+                        !port.toLowerCase().includes("undefined")
+                      ) {
+                        const socket = { port: port, host: host };
+                        const peers = await this._bootstrappingPeers
+                          .iterator()
+                          .all();
+                        const index = peers.length;
+                        await this._bootstrappingPeers.put(index, socket);
+                      }
+                    }
+                  }
+                }
+              } else if (message.type === "ihaveobject" && handshake === true) {
+                const objectids = await this.fetchObjectIDs(this._knownObjects);
+
+                if (objectids.includes(message.objectid)) {
+                  console.log("Object already present in database");
+                } else {
+                  const getobject = {
+                    type: "getobject",
+                    objectid: message.objectid,
+                  };
+                  socket.write(canonicalize(getobject) + "\n");
+                }
+              } else if (
+                message.type === "transaction" ||
+                message.type === "block"
+                // have to add && handshake equals to true here
+              ) {
+                const messageHash = sha256(message);
+
+                const objectids = await this.fetchObjectIDs(this._knownObjects);
+
+                if (objectids.includes(messageHash)) {
+                  console.log("Object already present in database");
+                } else {
+                  const object = {
+                    objectid: messageHash,
+                    object: message,
+                  };
+
+                  const objectsindb = await this._knownObjects.iterator().all();
+                  const index = objectsindb.length;
+                  await this._knownObjects.put(index, object);
+
+                  const IHaveObject = {
+                    type: "ihaveobject",
+                    objectid: messageHash,
+                  };
+
+                  socket.write(canonicalize(IHaveObject) + "\n");
+                }
+              } else if (message.type === "getobject" && handshake === true) {
+                //check if objectid is in database
+                console.log("Recieved getobject message from client");
+
+                const objectids = await this.fetchObjectIDs(this._knownObjects);
+
+                if (objectids.includes(message.objectid)) {
+                  //const objectfromdb = await this.fetchObject(this._knownObjects, message.objectid)
+                  const objectfromdb = {
+                    T: "00000002af000000000000000000000000000000000000000000000000000000",
+                    created: 1624219079,
+                    miner: "dionyziz",
+                    nonce:
+                      "0000000000000000000000000000000000000000000000000000002634878840",
+                    note: "The Economist 2021-06-20: Crypto-miners are probably to blame for the graphics-chip shortage",
+                    previd: null,
+                    txids: [],
+                    type: "block",
+                  };
+                  console.log("Sent Object to client");
+                  socket.write(canonicalize(objectfromdb) + "\n");
+                }
+              } else {
+                const error = {
+                  type: "error",
+                  error: "Unsupported message type received",
+                };
+                throw error;
+                client.end();
+              }
+            } else {
+              // throw error
+              const error = {
+                type: "error",
+                error: "Message is not valid JSON",
+              };
+              client.end();
+            }
+          } catch (e) {
+            const error = {
+              type: "error",
+              error: "Message is not valid JSON",
+            };
+            client.write(canonicalize(error));
+            console.log(e);
+            client.end();
+          }
+        }
+      }
     });
 
     // Don't forget to catch error, for your own sake.
@@ -70,8 +313,8 @@ class MyMaraNode {
     });
   }
 
-  // for testing purposes — we run this server on our localhost
-  server(peersList) {
+  // run server
+  server() {
     // The port on which the server is listening.
     const port = this._nodeSocket.port;
     // The host on which the server is running.
@@ -89,7 +332,8 @@ class MyMaraNode {
 
     // When a client requests a connection with the server, the server creates a new
     // socket dedicated to that client.
-    server.on("connection", (socket) => {
+    server.on("connection", async (socket) => {
+      let handshake = false;
       console.log("A new connection to the server has been established.");
       // Now that a TCP connection has been established, the server can send data to
       // the client by writing to its socket.
@@ -99,70 +343,176 @@ class MyMaraNode {
         agent: "Marabu-Core Client 0.8",
       };
 
-      const GetPeers = {
+      const getPeers = {
         type: "getpeers",
       };
 
+      // server sends hello message
       socket.write(canonicalize(helloMsg) + "\n");
-      socket.write(canonicalize(GetPeers) + "\n");
+      console.log("Server sent hello message");
 
-      // let peersList = new Array(bootstrappingPeers.iterator().length);
+      // server sends getpeers message
+      socket.write(canonicalize(getPeers) + "\n");
+      console.log("Server sent getpeers message");
 
-      console.log(peersList);
-
-      const peers = {
-        type: "peers",
-        peers: peersList,
-      };
+      // Creating a buffer object ensuring we ingest messages to our buffer in full, as opposed to in incomplete chunks
+      let received = new MessageBuffer("\n");
 
       // The server can also receive data from the client by reading from its socket.
-      socket.on("data", (chunk) => {
-        let array_chunk = chunk.toString().split("\n");
-        console.log("Recieved data from client: " + chunk);
+      socket.on("data", async (chunk) => {
+        received.push(chunk);
 
-        for (let payload of array_chunk.slice(0, -1)) {
-          // check if message is valid JSON object
-          try {
-            if (typeof JSON.parse(payload) === "object") {
-              // check if type hello and if version of type 0.8.x
-              // if not, close the connection immediately!!
-              let message = JSON.parse(payload.toString());
-              if (
-                message.type === "hello" &&
-                semver.satisfies(message.version, "0.8.x")
-              ) {
-                console.log("Successful hello message!!");
-              } else if (message.type === "getpeers") {
-                socket.write(canonicalize(peers) + "\n");
-                console.log(
-                  "Sent these peers to client: " + JSON.stringify(peers)
-                );
+        // once our chunks make up the entire, complete message in our buffer and process it
+        while (received.isFinished()) {
+          const message = received.handleData();
+
+          let array_chunk = message.toString().split("\n");
+
+          console.log(`Received data from ${host} server: ${array_chunk}.`);
+
+          for (let payload of array_chunk) {
+            try {
+              // check if message is valid JSON object
+              if (typeof JSON.parse(payload) === "object") {
+                // check if type hello and if version of type 0.8.x
+                // if not, close the connection immediately!!
+                let message = JSON.parse(payload.toString());
+                if (
+                  message.type === "hello" &&
+                  semver.satisfies(message.version, "0.8.x") &&
+                  handshake === false
+                ) {
+                  handshake = true;
+                  console.log("Received hello message from client");
+                } else if (message.type === "getpeers" && handshake === true) {
+                  console.log("Received getpeers message from client");
+
+                  // fetch peers
+                  const peersList = await this.fetchPeersList(
+                    this._bootstrappingPeers
+                  );
+
+                  const peers = {
+                    type: "peers",
+                    peers: peersList,
+                  };
+
+                  socket.write(canonicalize(peers) + "\n");
+                  console.log(
+                    "Sent these peers to client: " + JSON.stringify(peers)
+                  );
+                } else if (message.type === "peers" && handshake === true) {
+                  console.log("Got peers message from client");
+
+                  // add peers received to our database
+                  for (let peer of message.peers) {
+                    let [host, port] = peer.split(":");
+                    const socket = { port: port, host: host };
+                    const peers = await this._bootstrappingPeers
+                      .iterator()
+                      .all();
+                    const index = peers.length;
+                    await this._bootstrappingPeers.put(index, socket);
+                  }
+                } else if (
+                  message.type === "ihaveobject" &&
+                  handshake === true
+                ) {
+                  const objectids = await this.fetchObjectIDs(
+                    this._knownObjects
+                  );
+
+                  if (objectids.includes(message.objectid)) {
+                    console.log("Object already present in database");
+                  } else {
+                    const getobject = {
+                      type: "getobject",
+                      objectid: message.objectid,
+                    };
+                    socket.write(canonicalize(getobject) + "\n");
+                  }
+                } else if (
+                  message.type === "transaction" ||
+                  message.type === "block"
+                  // have to add && handshake equals to true here
+                ) {
+                  const messageHash = sha256(message);
+
+                  const objectids = await this.fetchObjectIDs(
+                    this._knownObjects
+                  );
+
+                  if (objectids.includes(messageHash)) {
+                    console.log("Object already present in database");
+                  } else {
+                    const object = {
+                      objectid: messageHash,
+                      object: message,
+                    };
+
+                    const objectsindb = await this._knownObjects
+                      .iterator()
+                      .all();
+                    const index = objectsindb.length;
+                    await this._knownObjects.put(index, object);
+
+                    const IHaveObject = {
+                      type: "ihaveobject",
+                      objectid: messageHash,
+                    };
+
+                    socket.write(canonicalize(IHaveObject) + "\n");
+                  }
+                } else if (message.type === "getobject" && handshake === true) {
+                  //check if objectid is in database
+                  console.log("Recieved getobject message from client");
+
+                  const objectids = await this.fetchObjectIDs(
+                    this._knownObjects
+                  );
+
+                  if (objectids.includes(message.objectid)) {
+                    //const objectfromdb = await this.fetchObject(this._knownObjects, message.objectid)
+                    const objectfromdb = {
+                      T: "00000002af000000000000000000000000000000000000000000000000000000",
+                      created: 1624219079,
+                      miner: "dionyziz",
+                      nonce:
+                        "0000000000000000000000000000000000000000000000000000002634878840",
+                      note: "The Economist 2021-06-20: Crypto-miners are probably to blame for the graphics-chip shortage",
+                      previd: null,
+                      txids: [],
+                      type: "block",
+                    };
+                    console.log("Sent Object to client");
+                    socket.write(canonicalize(objectfromdb) + "\n");
+                  }
+                } else {
+                  const error = {
+                    type: "error",
+                    error: "Unsupported message type received",
+                  };
+                  throw error;
+                  socket.end();
+                }
               } else {
+                // throw error
                 const error = {
                   type: "error",
-                  error: "Unsupported message type received",
+                  error: "Message is not valid JSON",
                 };
-                array_chunk = [];
-                throw error;
                 socket.end();
               }
-            } else {
-              // throw error
+            } catch (e) {
               const error = {
                 type: "error",
                 error: "Message is not valid JSON",
               };
+              socket.write(canonicalize(error));
+              console.log(e);
+              socket.end();
             }
-          } catch (e) {
-            const error = {
-              type: "error",
-              error: "Message is not valid JSON",
-            };
-            socket.write(canonicalize(error));
-            console.log(e);
-            socket.end();
           }
-          array_chunk = [];
         }
       });
 
@@ -183,43 +533,98 @@ class MyMaraNode {
 // load the node
 const loadNode = async () => {
   // Create a database for initial bootstrapping peers
+  const GenesisBlock = {
+    T: "00000002af000000000000000000000000000000000000000000000000000000",
+    created: 1624219079,
+    miner: "dionyziz",
+    nonce: "0000000000000000000000000000000000000000000000000000002634878840",
+    note: "The Economist 2021-06-20: Crypto-miners are probably to blame for the graphics-chip shortage",
+    previd: null,
+    txids: [],
+    type: "block",
+  };
+
+  const GenesisBlockID =
+    "00000000a420b7cefa2b7730243316921ed59ffe836e111ca3801f82a4f5360e";
+
+  const genesishash = sha256(canonicalize(GenesisBlock));
+  console.log("Neetish bhai");
+
+  //Have to convert from Uint8Array to string
+
+  //let str = Buffer.from(testingsha.buffer).toString();
+  console.log(`${genesishash}`);
+
   const bootstrappingPeers = new Level("bootstrappingPeers", {
     valueEncoding: "json",
   });
 
-  const socket = { port: "18018", host: "104.207.149.243" };
-  // "104.207.149.243"
+  const socket = { port: "18018", host: "localhost" };
 
   // put initial peers from protocol into our database
   const initialPeers = [
-    { port: 18018, host: "149.28.220.241" },
-    { port: 18018, host: "149.28.204.235" },
-    { port: 18018, host: "139.162.130.195" },
+    //{ port: 18018, host: "149.28.220.241" },
+    //{ port: 18018, host: "149.28.204.235" },
+    //{ port: 18018, host: "139.162.130.195" },
     socket,
   ];
 
-  let peersList = new Array(bootstrappingPeers.iterator().length);
-
+  // load up database with our initial peers
   for (const [index, socket] of initialPeers.entries()) {
     await bootstrappingPeers.put(index, socket);
-    if (socket !== null) {
-      peersList.push((socket["host"] + ":" + socket["port"]).toString());
-      // console.log(
-      //   "LALA: " + (socket["host"] + ":" + socket["port"]).toString()
-      // );
-    }
+  }
+
+  const knownObjects = new Level("knownObjects", {
+    valueEncoding: "json",
+  });
+
+  const ObjectsToBeAddedtoDB = [
+    {
+      object: {
+        T: "00000002af000000000000000000000000000000000000000000000000000000",
+        created: 1624219079,
+        miner: "dionyziz",
+        nonce:
+          "0000000000000000000000000000000000000000000000000000002634878840",
+        note: "The Economist 2021-06-20: Crypto-miners are probably to blame for the graphics-chip shortage",
+        previd: null,
+        txids: [],
+        type: "block",
+      },
+      objectID:
+        "00000000a420b7cefa2b7730243316921ed59ffe836e111ca3801f82a4f5360e",
+    },
+  ];
+
+  for (const [index, socket] of ObjectsToBeAddedtoDB.entries()) {
+    await knownObjects.put(index, socket);
   }
 
   // create our node
-  // const node = new MyMaraNode({ port: "18018", host: "localhost" });
-  const node = new MyMaraNode(socket);
+  const node = new MyMaraNode(socket, bootstrappingPeers, knownObjects);
 
   // run server from our node
-  node.server(peersList);
+  node.server();
 
   // connect to each of our node's trusted sockets from database
   for await (const [index, socket] of bootstrappingPeers.iterator()) {
-    node.client(socket.port, socket.host);
+    if (socket !== "" && socket !== null && typeof socket !== "undefined") {
+      const port = String(socket.port);
+      const host = String(socket.host);
+      if (
+        port !== "" &&
+        !port.toLowerCase().includes("null") &&
+        !port.toLowerCase().includes("undefined")
+      ) {
+        if (
+          host !== "" &&
+          !host.toLowerCase().includes("null") &&
+          !host.toLowerCase().includes("undefined")
+        ) {
+          node.client(socket.port, socket.host);
+        }
+      }
+    }
   }
 };
 
